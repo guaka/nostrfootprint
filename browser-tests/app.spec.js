@@ -1,5 +1,18 @@
 import {test,expect} from '@playwright/test';
 import {generateSecretKey,getPublicKey,finalizeEvent,nip19} from 'nostr-tools';
+test('help and signer modals close with Escape and restore focus',async({page})=>{
+  await page.goto('/');
+  const help=page.getByRole('button',{name:'How deletion works',exact:true});
+  await help.click();
+  const dialog=page.getByRole('dialog',{name:'How deletion works'});
+  await expect(dialog).toContainText('A request is not a guarantee.');
+  await expect(dialog.getByRole('link')).toHaveAttribute('href','https://github.com/nostr-protocol/nips/blob/master/09.md');
+  await page.keyboard.press('Escape');await expect(dialog).not.toBeVisible();
+  await expect(help).toBeFocused();
+  await page.locator('#connect').click();await expect(page.locator('#connection')).toBeVisible();
+  await page.keyboard.press('Escape');await expect(page.locator('#connection')).not.toBeVisible();
+  await expect(page.locator('#connect')).toBeFocused();
+});
 test('discovered kinds and encryption controls combine with existing filters',async({page})=>{
   await page.goto('/');await page.locator('#demo').click();
   await expect(page.locator('#kind optgroup option')).toHaveText(['1 · Note','10002 · Relay list','30397 · Map note']);
@@ -68,7 +81,7 @@ for(const mode of ['nsec','nip7'])test(`${mode}: review, sign, publish and reche
   await page.exposeFunction('testSign',template=>finalizeEvent(template,sk));
   await page.addInitScript(({event,pk})=>{window.nostr={getPublicKey:async()=>pk,signEvent:t=>window.testSign(t)};let deleted=false;window.WebSocket=class{readyState=1;constructor(){queueMicrotask(()=>this.onopen?.());}send(raw){const m=JSON.parse(raw);queueMicrotask(()=>{if(m[0]==='REQ'){if(!deleted)this.onmessage?.({data:JSON.stringify(['EVENT',m[1],event])});this.onmessage?.({data:JSON.stringify(['EOSE',m[1]])});}if(m[0]==='EVENT'){deleted=true;this.onmessage?.({data:JSON.stringify(['OK',m[1].id,true,''])});}});}close(){}};},{event,pk});
   await page.goto('/');await page.locator('#connect').click();if(mode==='nsec'){await page.locator('#nsec').fill(nip19.nsecEncode(sk));await page.locator('#local-connect').click();}else await page.locator('#extension').click();
-  if(mode==='nsec')await page.locator('#scan').click();await expect(page.locator('#count')).toHaveText('1');await expect(page.locator('#scan')).toBeEnabled();await page.locator('#select-all').check();await page.locator('#delete').click();await expect(page.locator('#review')).toBeVisible();await page.locator('#confirm').click();await expect(page.locator('#review-status')).toContainText('Finished.');await expect(page.locator('#coverage')).toContainText('Request accepted');await expect(page.locator('#events')).toContainText('Not returned on recheck');expect(await page.evaluate(()=>localStorage.length)).toBe(mode==='nip7'?1:0);
+  if(mode==='nsec')await page.locator('#scan').click();await expect(page.locator('#count')).toHaveText('1');await expect(page.locator('#scan')).toBeEnabled();await page.locator('#select-all').check();await page.locator('#delete').click();await expect(page.locator('#review')).toBeVisible();await page.keyboard.press('Escape');await expect(page.locator('#review')).not.toBeVisible();await expect(page.locator('#selected-count')).toHaveText('1');await page.locator('#delete').click();await page.locator('#confirm').click();await expect(page.locator('#review-status')).toContainText('Finished.');await expect(page.locator('#coverage')).toContainText('Request accepted');await expect(page.locator('#events')).toContainText('Not returned on recheck');expect(await page.evaluate(()=>localStorage.length)).toBe(mode==='nip7'?1:0);
   await expect(page.locator('tr[data-deletion="removed"]')).toContainText('My test note');
   await expect(page.locator('tr[data-deletion="removed"] .deletion-badge')).toHaveText('No longer returned by checked relays');
   await page.getByRole('button',{name:'View results in table'}).click();

@@ -26,6 +26,17 @@ let records=new Map(),coverage=new Map(),selected=new Set(),owner='',signer=null
 const short=s=>s.slice(0,12)+'…'+s.slice(-6);
 const date=t=>new Date(t*1000).toISOString().slice(0,16).replace('T',' ')+' UTC';
 const say=text=>$('notice').textContent=text;
+const deletionHelp = el('dialog');
+deletionHelp.id = 'deletion-help';
+deletionHelp.setAttribute('aria-labelledby', 'deletion-help-title');
+deletionHelp.innerHTML = '<form method="dialog"><button class="close" aria-label="Close">×</button></form><h2 id="deletion-help-title">How deletion works</h2><p>Nostr stores copies of your posts on independent servers called relays. There is no single place that can erase every copy.</p><ol><li>Choose the items you want to remove and review your selection.</li><li>Approve a public deletion request using your signer—the app or key that proves these items are yours.</li><li>We send the request only to your selected relays where those items were found, then check whether they still return them.</li></ol><p><strong>A request is not a guarantee.</strong> A relay may ignore it. “No longer returned” means that relay did not return the item when we checked—not that every copy is gone. Other people may have saved or reposted it.</p><p>The deletion request, including any reason you enter, is public. It cannot be taken back. Export anything you want to keep before proceeding. Removing profiles or lists may affect other apps.</p><p>Large selections are handled in batches. Closing a popup does not undo requests already sent. Use “Stop after this batch” to pause the remaining batches.</p><p><a href="https://github.com/nostr-protocol/nips/blob/master/09.md" target="_blank" rel="noreferrer">Technical details: Nostr deletion standard (NIP-09) ↗</a></p><form method="dialog"><button>Got it</button></form>';
+document.body.append(deletionHelp);
+const deletionHelpButton = el('button', 'How deletion works');
+deletionHelpButton.type = 'button';
+deletionHelpButton.onclick = () => deletionHelp.showModal();
+document.querySelector('.aside-note a').replaceWith(deletionHelpButton);
+// Native dialogs handle Escape, focus trapping, and returning focus to
+// their opener. Keep cancel unblocked for help, review, and connection.
 updateIdentityPanel(records, owner, demo);
 let sortColumn = 'published', sortDirection = 'descending';
 const discoveredKinds = el('optgroup'); discoveredKinds.label = 'Discovered kinds';
