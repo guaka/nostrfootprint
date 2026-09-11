@@ -1,10 +1,17 @@
 import './style.css';
+import './table.css';
 import { nip19, generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools';
 import { BunkerSigner, parseBunkerInput } from 'nostr-tools/nip46';
 import {publicKey,relayURLs,category,kindName,deletionTemplate,assertSigned,query,publish} from './core.js';
 const $=id=>document.getElementById(id);
 document.querySelector('.brand').href = './';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
+const footer=el('footer',undefined,'source-footer');
+const source=el('a');source.href='https://github.com/guaka/nostrfootprint';source.setAttribute('aria-label','Nostr Footprint source on GitHub');
+source.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor"><path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58v-2.23c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.25 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.8 5.62-5.48 5.92.43.37.82 1.1.82 2.22v3.3c0 .32.22.7.83.58A12 12 0 0 0 24 12.5c0-6.63-5.37-12-12-12z"/></svg><span>GitHub</span>';
+const licenseLink=el('a','AGPL-3.0');licenseLink.href='https://github.com/guaka/nostrfootprint/blob/main/LICENSE';
+const built=el('time',`Built ${__BUILD_TIME__.slice(0,16).replace('T',' ')} UTC`);built.dateTime=__BUILD_TIME__;
+footer.append(source,licenseLink,built);document.body.append(footer);
 let records=new Map(),coverage=new Map(),selected=new Set(),owner='',signer=null,signerKey='',secret=null,remote=null,controller=null,busy=false,demo=false,reviewSnapshot=[];
 const short=s=>s.slice(0,12)+'…'+s.slice(-6);
 const date=t=>new Date(t*1000).toISOString().slice(0,16).replace('T',' ')+' UTC';
@@ -17,11 +24,25 @@ function render(){
   $('coverage').replaceChildren();for(const[url,c]of coverage){const row=el('div',undefined,'relay');row.append(el('strong',new URL(url).host),el('span',`${c.count} events · ${c.status}`));if(c.deletion)row.append(el('span',c.deletion));$('coverage').append(row);}
   const rows=visible();$('select-all').checked=rows.some(r=>r.event.kind!==5)&&rows.filter(r=>r.event.kind!==5).every(r=>selected.has(r.event.id));$('select-all').disabled=busy;
   $('events').replaceChildren();if(!rows.length){const empty=el('div',undefined,'empty');empty.append(el('h3',records.size?'No matching results':'Nothing found yet'),el('p',records.size?'Try another filter.':'Search a public key or explore the example. Empty or incomplete relay results do not prove there is no data.'));$('events').append(empty);}
-  for(const r of rows){const e=r.event,card=el('article',undefined,'event'),top=el('div',undefined,'event-top'),check=el('input');check.type='checkbox';check.checked=selected.has(e.id);check.disabled=busy||e.kind===5;check.setAttribute('aria-label',`Select ${kindName(e.kind)} ${short(e.id)}`);check.onchange=()=>{check.checked?selected.add(e.id):selected.delete(e.id);render();};top.append(check,el('span',kindName(e.kind),'badge'),el('time',date(e.created_at)));card.append(top);
-    const content=category(e.kind)==='messages'?'Encrypted content. This view does not decrypt messages.':(e.content||'(No text content)');card.append(el('p',content.length>600?content.slice(0,600)+'…':content,'event-content'));
-    card.append(el('div',`Found on ${r.relays.size} ${r.relays.size===1?'relay':'relays'} · ${short(e.id)}`,'event-bottom'));
-    if(r.check)card.append(el('p',r.check,'small'));
-    const details=el('details');details.append(el('summary','Event details & relay locations'),el('pre',JSON.stringify(e,null,2)),el('p',[...r.relays].join('\n')));card.append(details);$('events').append(card);
+  if (!rows.length) return;
+  const table=el('table',undefined,'events-table'),head=el('thead'),headers=el('tr'),body=el('tbody');
+  table.append(el('caption','Published events and the relays that returned them','sr-only'));
+  for(const label of ['Select','Published (UTC)','Type','Content / details','Relay(s)']){const th=el('th',label);th.scope='col';headers.append(th);}
+  head.append(headers);table.append(head,body);
+  const scroller=el('div',undefined,'table-scroll');scroller.tabIndex=0;scroller.setAttribute('role','region');scroller.setAttribute('aria-label','Published events table');scroller.append(table);$('events').append(scroller);
+  for(const r of rows){
+    const e=r.event,row=el('tr',undefined,'event'),selection=el('td'),check=el('input');
+    check.type='checkbox';check.checked=selected.has(e.id);check.disabled=busy||e.kind===5;check.setAttribute('aria-label',`Select ${kindName(e.kind)} ${short(e.id)}`);
+    check.onchange=()=>{check.checked?selected.add(e.id):selected.delete(e.id);render();};selection.append(check);
+    const published=el('td',undefined,'event-date'),time=el('time',date(e.created_at).replace(' UTC',''));time.dateTime=new Date(e.created_at*1000).toISOString();published.append(time);
+    const type=el('td');type.append(el('span',kindName(e.kind),'badge'));
+    const contentCell=el('td',undefined,'event-text');
+    const content=category(e.kind)==='messages'?'Encrypted content. This view does not decrypt messages.':(e.content||'(No text content)');contentCell.append(el('p',content.length>300?content.slice(0,300)+'…':content,'event-content'));
+    const details=el('details');details.append(el('summary',`Event details · ${short(e.id)}`),el('pre',JSON.stringify(e,null,2)));contentCell.append(details);
+    if(r.check)contentCell.append(el('p',r.check,'small'));
+    const relaysCell=el('td',undefined,'event-relays');
+    if(r.relays.size){const list=el('ul');for(const relay of [...r.relays].sort())list.append(el('li',relay));relaysCell.append(list);}else relaysCell.append(el('span','Not observed on a relay','muted'));
+    row.append(selection,published,type,contentCell,relaysCell);body.append(row);
   }
 }
 async function scan(){try{const key=publicKey($('identity').value),urls=relayURLs($('relays').value);owner=key;records=new Map();selected.clear();coverage=new Map(urls.map(u=>[u,{count:0,status:'Connecting…'}]));demo=false;busy=true;controller=new AbortController();render();say('Searching selected relays. Each search is bounded; incomplete coverage is shown.');

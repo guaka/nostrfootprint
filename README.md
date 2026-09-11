@@ -1,6 +1,10 @@
 # Nostr Footprint
 
+Licensed under the GNU Affero General Public License v3.0 only ([LICENSE](LICENSE)).
+
 An independent, client-side web app for inspecting your published Nostr events across selected relays, exporting them, and requesting deletion of selected event IDs.
+
+Events appear in a selectable table with publication time, type, content/details, and a dedicated relay column. The footer links to the GitHub source and shows the build timestamp in `yyyy-mm-dd hh:mm` UTC, captured when Vite builds the app.
 
 ## Run
 
