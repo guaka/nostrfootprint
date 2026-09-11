@@ -35,6 +35,8 @@ To reproduce the browser check locally, run `npm run build`, `npx playwright ins
 
 ## Signing
 
+After a successful NIP-07 or NIP-46 connection, only the public `npub` is saved in localStorage and used to prefill the search field on the next visit. Disconnect keeps this public browsing preference. Restoring it does not reconnect a signer or start a relay search. Secret keys, bunker URLs, and signing sessions are never persisted. Invalid stored values and unavailable storage are ignored.
+
 - NIP-07: uses the provider at `window.nostr`, including providers supplied by native app browsers.
 - NIP-46: accepts a `bunker://` URL; creates an ephemeral client key and requests approval through the remote signer. HTTPS authorization links are displayed for the user to open.
 - nsec: imported into memory for the current tab only. No localStorage, cookies, analytics, or server submission. Disconnect wipes the byte buffer; JavaScript cannot guarantee erasure of all runtime copies. Reload drops the session.

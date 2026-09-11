@@ -1,11 +1,13 @@
 import './style.css';
 import './table.css';
+import { rememberIdentity, restoreIdentity } from './remembered-identity.js';
 import { deletionStatus } from './deletion-status.js';
 import { createIdentityPanel } from './nip05.js';
 import { nip19, generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools';
 import { BunkerSigner, parseBunkerInput } from 'nostr-tools/nip46';
 import {publicKey,relayURLs,category,kindName,deletionTemplate,assertSigned,query,publish} from './core.js';
 const $=id=>document.getElementById(id);
+$('identity').value = restoreIdentity();
 const updateIdentityPanel = createIdentityPanel(document.querySelector('.toolbar'));
 document.querySelector('.brand').href = './';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
@@ -130,7 +132,7 @@ const connection=el('dialog');connection.id='connection';connection.innerHTML='<
 $('extension').textContent='Use NIP-07 signer';
 $('connect').onclick=()=>connection.showModal();
 async function disconnect(){secret?.fill(0);secret=null;signer=null;signerKey='';if(remote){await remote.close();remote=null;}$('connect').textContent='Connect signer';$('nsec').value='';$('bunker').value='';}
-async function accept(candidate,label){const key=publicKey(await candidate.getPublicKey());if(label==='Remote signer'&&remote!==candidate)throw new Error('Remote connection was cancelled.');signer=candidate;signerKey=key;const npub=nip19.npubEncode(key);$('identity').value=npub;$('connect').textContent=`${label} · ${short(npub)}`;connection.close();say('Signer connected. Search to view this identity’s published data.');}
+async function accept(candidate,label){const key=publicKey(await candidate.getPublicKey());if(label==='Remote signer'&&remote!==candidate)throw new Error('Remote connection was cancelled.');signer=candidate;signerKey=key;const npub=nip19.npubEncode(key);rememberIdentity(npub,label);$('identity').value=npub;$('connect').textContent=`${label} · ${short(npub)}`;connection.close();say('Signer connected. Search to view this identity’s published data.');}
 $('disconnect').onclick=async()=>{await disconnect();connection.close();say('Signer disconnected. Public search results remain in this tab.');};
 $('extension').onclick=async()=>{try{if(!window.nostr)throw new Error('No NIP-07 provider found at window.nostr. Open this page in a browser or app with a NIP-07 signer.');await disconnect();await accept(window.nostr,'NIP-07');}catch(e){$('connection-status').textContent=e.message;}};
 $('local-connect').onclick=async()=>{try{const value=$('nsec').value.trim();$('nsec').value='';const decoded=nip19.decode(value);if(decoded.type!=='nsec')throw new Error('Enter an nsec secret key.');await disconnect();secret=decoded.data;getPublicKey(secret);await accept({getPublicKey:async()=>getPublicKey(secret),signEvent:async t=>finalizeEvent(t,secret)},'Session key');}catch{secret?.fill(0);secret=null;$('connection-status').textContent='Could not import that nsec. Check your key.';}};

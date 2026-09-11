@@ -32,9 +32,13 @@ for(const mode of ['nsec','nip7'])test(`${mode}: review, sign, publish and reche
   await page.exposeFunction('testSign',template=>finalizeEvent(template,sk));
   await page.addInitScript(({event,pk})=>{window.nostr={getPublicKey:async()=>pk,signEvent:t=>window.testSign(t)};let deleted=false;window.WebSocket=class{readyState=1;constructor(){queueMicrotask(()=>this.onopen?.());}send(raw){const m=JSON.parse(raw);queueMicrotask(()=>{if(m[0]==='REQ'){if(!deleted)this.onmessage?.({data:JSON.stringify(['EVENT',m[1],event])});this.onmessage?.({data:JSON.stringify(['EOSE',m[1]])});}if(m[0]==='EVENT'){deleted=true;this.onmessage?.({data:JSON.stringify(['OK',m[1].id,true,''])});}});}close(){}};},{event,pk});
   await page.goto('/');await page.locator('#connect').click();if(mode==='nsec'){await page.locator('#nsec').fill(nip19.nsecEncode(sk));await page.locator('#local-connect').click();}else await page.locator('#extension').click();
-  await page.locator('#scan').click();await expect(page.locator('#count')).toHaveText('1');await expect(page.locator('#scan')).toBeEnabled();await page.locator('#select-all').check();await page.locator('#delete').click();await expect(page.locator('#review')).toBeVisible();await page.locator('#confirm').click();await expect(page.locator('#review-status')).toContainText('Finished.');await expect(page.locator('#coverage')).toContainText('Request accepted');await expect(page.locator('#events')).toContainText('Not returned on recheck');expect(await page.evaluate(()=>localStorage.length)).toBe(0);
+  await page.locator('#scan').click();await expect(page.locator('#count')).toHaveText('1');await expect(page.locator('#scan')).toBeEnabled();await page.locator('#select-all').check();await page.locator('#delete').click();await expect(page.locator('#review')).toBeVisible();await page.locator('#confirm').click();await expect(page.locator('#review-status')).toContainText('Finished.');await expect(page.locator('#coverage')).toContainText('Request accepted');await expect(page.locator('#events')).toContainText('Not returned on recheck');expect(await page.evaluate(()=>localStorage.length)).toBe(mode==='nip7'?1:0);
   await expect(page.locator('tr[data-deletion="removed"]')).toContainText('My test note');
   await expect(page.locator('tr[data-deletion="removed"] .deletion-badge')).toHaveText('No longer returned by checked relays');
   await page.getByRole('button',{name:'View results in table'}).click();
   await expect(page.locator('#review')).not.toBeVisible();
+  await page.reload();
+  await expect(page.locator('#identity')).toHaveValue(mode==='nip7'?nip19.npubEncode(pk):'');
+  await expect(page.locator('#connect')).toHaveText('Connect signer');
+  await expect(page.locator('#count')).toHaveText('0');
 });
