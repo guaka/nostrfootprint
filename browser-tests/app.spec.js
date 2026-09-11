@@ -1,5 +1,19 @@
 import {test,expect} from '@playwright/test';
 import {generateSecretKey,getPublicKey,finalizeEvent,nip19} from 'nostr-tools';
+test('sorting toggles direction without changing event selection',async({page})=>{
+  await page.goto('/');await page.locator('#demo').click();
+  const selected=page.locator('tbody tr').first().getByRole('checkbox');
+  const label=await selected.getAttribute('aria-label');await selected.check();
+  await page.getByRole('button',{name:'Published (UTC)',exact:true}).click();
+  await expect(page.locator('th[aria-sort="ascending"]')).toContainText('Published');
+  await expect(page.locator('tbody tr').first()).toContainText('Relay list');
+  await expect(page.getByRole('checkbox',{name:label,exact:true})).toBeChecked();
+  await page.getByRole('button',{name:'Published (UTC)',exact:true}).press('Enter');
+  await expect(page.locator('th[aria-sort="descending"]')).toContainText('Published');
+  await expect(page.locator('tbody tr').first()).toContainText('A spare room');
+  await page.getByRole('button',{name:'Type',exact:true}).click();
+  await expect(page.locator('tbody tr').first()).toContainText('Map note');
+});
 test('profile addresses appear above the table with domain verification',async({page})=>{
   const sk=generateSecretKey(),pk=getPublicKey(sk);
   const profiles=['alice@example.com','old@example.com'].map((nip05,i)=>finalizeEvent({kind:0,created_at:200-i,content:JSON.stringify({nip05}),tags:[]},sk));

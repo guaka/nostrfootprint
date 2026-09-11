@@ -19,7 +19,17 @@ const short=s=>s.slice(0,12)+'…'+s.slice(-6);
 const date=t=>new Date(t*1000).toISOString().slice(0,16).replace('T',' ')+' UTC';
 const say=text=>$('notice').textContent=text;
 updateIdentityPanel(records, owner, demo);
-function visible(){return [...records.values()].filter(r=>($('kind').value==='all'||category(r.event.kind)===$('kind').value)&&r.event.content.toLowerCase().includes($('search').value.toLowerCase())).sort((a,b)=>b.event.created_at-a.event.created_at);}
+let sortColumn = 'published', sortDirection = 'descending';
+const textOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+function compareRows(a, b) {
+  let order;
+  if (sortColumn === 'published') order = a.event.created_at - b.event.created_at;
+  else if (sortColumn === 'type') order = textOrder.compare(kindName(a.event.kind), kindName(b.event.kind));
+  else if (sortColumn === 'content') order = textOrder.compare(a.event.content, b.event.content);
+  else order = textOrder.compare([...a.relays].sort().join('\n'), [...b.relays].sort().join('\n'));
+  return (sortDirection === 'ascending' ? order : -order) || a.event.id.localeCompare(b.event.id);
+}
+function visible(){return [...records.values()].filter(r=>($('kind').value==='all'||category(r.event.kind)===$('kind').value)&&r.event.content.toLowerCase().includes($('search').value.toLowerCase())).sort(compareRows);}
 function render(){
   updateIdentityPanel(records, owner, demo);
   $('count').textContent=records.size;$('relay-count').textContent=coverage.size;$('selected-count').textContent=selected.size;
@@ -31,7 +41,27 @@ function render(){
   if (!rows.length) return;
   const table=el('table',undefined,'events-table'),head=el('thead'),headers=el('tr'),body=el('tbody');
   table.append(el('caption','Published events and the relays that returned them','sr-only'));
-  for(const label of ['Select','Published (UTC)','Type','Content / details','Relay(s)']){const th=el('th',label);th.scope='col';headers.append(th);}
+  for (const [key,label] of [['','Select'],['published','Published (UTC)'],['type','Type'],['content','Content / details'],['relays','Relay(s)']]) {
+    const th=el('th');th.scope='col';
+    if (!key) th.textContent=label;
+    else {
+      const active=sortColumn===key;
+      th.setAttribute('aria-sort',active?sortDirection:'none');
+      const button=el('button',undefined,'sort-button');button.type='button';button.dataset.sort=key;
+      const arrow=el('span',active?(sortDirection==='ascending'?'↑':'↓'):'↕');arrow.setAttribute('aria-hidden','true');
+      button.append(document.createTextNode(label+' '),arrow);
+      const next=active&&sortDirection==='ascending'?'descending':'ascending';
+      button.title=`Sort ${label} ${next}`;
+      button.onclick=()=>{
+        const scrollLeft=document.querySelector('.table-scroll')?.scrollLeft||0;
+        sortColumn=key;sortDirection=next;render();
+        document.querySelector('.table-scroll').scrollLeft=scrollLeft;
+        document.querySelector(`[data-sort="${key}"]`).focus({preventScroll:true});
+      };
+      th.append(button);
+    }
+    headers.append(th);
+  }
   head.append(headers);table.append(head,body);
   const scroller=el('div',undefined,'table-scroll');scroller.tabIndex=0;scroller.setAttribute('role','region');scroller.setAttribute('aria-label','Published events table');scroller.append(table);$('events').append(scroller);
   for(const r of rows){

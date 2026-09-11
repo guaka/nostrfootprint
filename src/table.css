@@ -9,6 +9,9 @@ aside { border-left: 0; border-top: 1px solid #d4dfe7; padding: 1.5rem 0 0; }
 .table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid #d7e1e9; border-radius: 8px; }
 .events-table { width: 100%; min-width: 850px; border-collapse: collapse; background: white; table-layout: fixed; }
 .events-table th { text-align: left; padding: .8rem; background: #eaf0f5; font-size: .875rem; font-weight: 650; }
+.sort-button { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem 0; border: 0; border-radius: 2px; background: transparent; text-align: left; font: inherit; }
+.sort-button:hover { background: transparent; color: #08787d; text-decoration: underline; }
+.sort-button span { flex-shrink: 0; color: #08787d; }
 .events-table th:first-child { width: 65px; }
 .events-table th:nth-child(2) { width: 160px; }
 .events-table th:nth-child(3) { width: 135px; }
