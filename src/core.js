@@ -41,7 +41,7 @@ export function query(url, filter, signal, timeout = 12000) {
     ws.onopen=()=>ws.send(JSON.stringify(['REQ',id,filter]));
     ws.onerror=()=>done('Connection failed');ws.onclose=()=>done('Disconnected; coverage incomplete');
     ws.onmessage=({data})=>{try {if(typeof data!=='string'||data.length>2000000)return;const m=JSON.parse(data);if(m[0]==='AUTH'){done('Authentication required');return;}if(m[1]!==id)return;
-      if(m[0]==='EVENT'){const e=m[2];if(filter.authors&&!filter.authors.includes(e.pubkey))return;if(filter.ids&&!filter.ids.includes(e.id))return;if(filter.until!==undefined&&e.created_at>filter.until)return;if(events.size<2000&&verifyEvent(e))events.set(e.id,e);}
+      if(m[0]==='EVENT'){const e=m[2];if(filter.authors&&!filter.authors.includes(e.pubkey))return;if(filter.kinds&&!filter.kinds.includes(e.kind))return;if(filter.ids&&!filter.ids.includes(e.id))return;if(filter.until!==undefined&&e.created_at>filter.until)return;if(events.size<2000&&verifyEvent(e))events.set(e.id,e);}
       if(m[0]==='EOSE')done('Query complete');if(m[0]==='CLOSED')done(`Restricted: ${String(m[2]).slice(0,150)}`);
     }catch{ /* Untrusted relay messages are ignored. */ }};
   });

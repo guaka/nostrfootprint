@@ -1,4 +1,8 @@
 .workspace { grid-template-columns: minmax(0, 1fr); }
+.identity-panel { padding: 1.2rem; margin-bottom: 1.5rem; border: 1px solid #d7e1e9; border-radius: 8px; background: white; }
+.identity-panel ul { list-style: none; padding: 0; margin-bottom: 0; }
+.identity-panel li { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; padding: .65rem 0; border-top: 1px solid #e3eaf0; overflow-wrap: anywhere; }
+.identity-panel li span { font-size: .875rem; color: #5a7183; }
 aside { border-left: 0; border-top: 1px solid #d4dfe7; padding: 1.5rem 0 0; }
 #coverage { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1.5rem; }
 .aside-note { max-width: 48rem; }

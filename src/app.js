@@ -1,9 +1,11 @@
 import './style.css';
 import './table.css';
+import { createIdentityPanel } from './nip05.js';
 import { nip19, generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools';
 import { BunkerSigner, parseBunkerInput } from 'nostr-tools/nip46';
 import {publicKey,relayURLs,category,kindName,deletionTemplate,assertSigned,query,publish} from './core.js';
 const $=id=>document.getElementById(id);
+const updateIdentityPanel = createIdentityPanel(document.querySelector('.toolbar'));
 document.querySelector('.brand').href = './';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const footer=el('footer',undefined,'source-footer');
@@ -16,8 +18,10 @@ let records=new Map(),coverage=new Map(),selected=new Set(),owner='',signer=null
 const short=s=>s.slice(0,12)+'…'+s.slice(-6);
 const date=t=>new Date(t*1000).toISOString().slice(0,16).replace('T',' ')+' UTC';
 const say=text=>$('notice').textContent=text;
+updateIdentityPanel(records, owner, demo);
 function visible(){return [...records.values()].filter(r=>($('kind').value==='all'||category(r.event.kind)===$('kind').value)&&r.event.content.toLowerCase().includes($('search').value.toLowerCase())).sort((a,b)=>b.event.created_at-a.event.created_at);}
 function render(){
+  updateIdentityPanel(records, owner, demo);
   $('count').textContent=records.size;$('relay-count').textContent=coverage.size;$('selected-count').textContent=selected.size;
   $('delete').textContent=`Review deletion · ${selected.size}`;$('delete').disabled=!selected.size||busy||demo;
   $('scan').disabled=busy;$('demo').disabled=busy;$('connect').disabled=busy;$('identity').disabled=busy;$('relays').disabled=busy;$('stop').hidden=!controller;
@@ -46,7 +50,11 @@ function render(){
   }
 }
 async function scan(){try{const key=publicKey($('identity').value),urls=relayURLs($('relays').value);owner=key;records=new Map();selected.clear();coverage=new Map(urls.map(u=>[u,{count:0,status:'Connecting…'}]));demo=false;busy=true;controller=new AbortController();render();say('Searching selected relays. Each search is bounded; incomplete coverage is shown.');
-  await Promise.all(urls.map(async url=>{let until=Math.floor(Date.now()/1000),seen=new Set();for(let page=0;page<20;page++){
+  await Promise.all(urls.map(async url=>{let until=Math.floor(Date.now()/1000),seen=new Set();
+    const profiles = await query(url,{authors:[key],kinds:[0],limit:20},controller.signal);
+    for(const event of profiles.events){seen.add(event.id);if(!records.has(event.id))records.set(event.id,{event,relays:new Set()});records.get(event.id).relays.add(url);}
+    coverage.get(url).count=seen.size;render();
+    for(let page=0;page<20;page++){
     const result=await query(url,{authors:[key],until,limit:500},controller.signal);let added=0;for(const event of result.events){if(!seen.has(event.id)){seen.add(event.id);added++;}if(!records.has(event.id))records.set(event.id,{event,relays:new Set()});records.get(event.id).relays.add(url);}
     let status=result.status;if(status==='Query complete')status=result.events.length?'Searching older events…':'No older events returned';coverage.set(url,{count:seen.size,status});render();
     if(result.status!=='Query complete'||!result.events.length)break;
