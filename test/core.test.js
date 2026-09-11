@@ -1,0 +1,13 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {generateSecretKey,getPublicKey,finalizeEvent,nip19} from 'nostr-tools';
+import {publicKey,relayURLs,deletionTemplate,assertSigned,query,publish} from '../src/core.js';
+const sk=generateSecretKey(),pk=getPublicKey(sk);
+const event=finalizeEvent({kind:1,created_at:100,tags:[],content:'test'},sk);
+test('public browsing accepts npub and rejects secret keys',()=>{assert.equal(publicKey(nip19.npubEncode(pk)),pk);assert.throws(()=>publicKey(nip19.nsecEncode(sk)));});
+test('relay input rejects insecure URLs and credentials',()=>{assert.throws(()=>relayURLs('https://example.com'));assert.throws(()=>relayURLs('wss://a:b@example.com'));assert.deepEqual(relayURLs('wss://example.com wss://example.com/'),['wss://example.com/']);});
+test('deletion binds exact selected IDs and kinds, not all address versions',()=>{const t=deletionTemplate([event],pk,'',200);assert.deepEqual(t.tags,[['e',event.id],['k','1']]);assertSigned(finalizeEvent(t,sk),t,pk);});
+test('cannot delete another identity, forged events, or deletion requests',()=>{assert.throws(()=>deletionTemplate([event],'0'.repeat(64)));assert.throws(()=>deletionTemplate([{...JSON.parse(JSON.stringify(event)),content:'forged'}],pk));assert.throws(()=>deletionTemplate([finalizeEvent({kind:5,created_at:100,tags:[],content:''},sk)],pk));});
+test('signer cannot change approved content or selection',()=>{const t=deletionTemplate([event],pk);assert.throws(()=>assertSigned(finalizeEvent({...t,content:'changed'},sk),t,pk));});
+test('relay query verifies authors and signatures and completes at EOSE',async()=>{globalThis.WebSocket=class{readyState=1;constructor(){queueMicrotask(()=>this.onopen());}send(raw){const m=JSON.parse(raw);if(m[0]!=='REQ')return;queueMicrotask(()=>{this.onmessage({data:JSON.stringify(['EVENT',m[1],event])});this.onmessage({data:JSON.stringify(['EVENT',m[1],{...event,content:'forged'}])});this.onmessage({data:JSON.stringify(['EOSE',m[1]])});});}close(){}};const r=await query('wss://example.com',{authors:[pk]});assert.equal(r.status,'Query complete');assert.equal(r.events.length,1);});
+test('relay refusal is distinct from a successful deletion acknowledgment',async()=>{globalThis.WebSocket=class{readyState=1;constructor(){queueMicrotask(()=>this.onopen());}send(){queueMicrotask(()=>this.onmessage({data:JSON.stringify(['OK',event.id,false,'blocked'])}));}close(){}};assert.equal(await publish('wss://example.com',event),'Request rejected: blocked');});
