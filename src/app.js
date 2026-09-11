@@ -1,5 +1,6 @@
 import './style.css';
 import './table.css';
+import { deleteInBatches, DELETION_BATCH_SIZE } from './delete-batches.js';
 import { EventCache, observeEvent } from './event-cache.js';
 import { createEventTable } from './event-table.js';
 import { rememberIdentity, restoreIdentity } from './remembered-identity.js';
@@ -47,6 +48,14 @@ arrivals.append(showNew);
 $('events').before(arrivals);
 const cacheHint = el('p', undefined, 'small muted');
 arrivals.before(cacheHint);
+const selectMatching = el('button');
+selectMatching.type = 'button'; selectMatching.id = 'select-matching';
+$('delete').before(selectMatching);
+selectMatching.onclick = () => {
+  for(const record of records.values()) if(record.event.kind!==5 && matchesFilters(record)) selected.add(record.event.id);
+  displayOrder = [...records.keys()].sort((a,b) => compareRows(records.get(a),records.get(b)));
+  render();
+};
 const renderTable = createEventTable($('events'), (id, checked) => {
   if (busy && !controller) return;
   checked ? selected.add(id) : selected.delete(id);
@@ -59,9 +68,11 @@ const renderTable = createEventTable($('events'), (id, checked) => {
 });
 render();
 function visible() {
-  return displayOrder.map(id => records.get(id)).filter(r => r &&
-    ($('kind').value === 'all' || category(r.event.kind) === $('kind').value) &&
-    r.event.content.toLowerCase().includes($('search').value.toLowerCase()));
+  return displayOrder.map(id => records.get(id)).filter(r => r && matchesFilters(r));
+}
+function matchesFilters(record) {
+  return ($('kind').value==='all'||category(record.event.kind)===$('kind').value) &&
+    record.event.content.toLowerCase().includes($('search').value.toLowerCase());
 }
 function render() {
   if (displayedRecords !== records) { displayedRecords = records; displayOrder = []; }
@@ -84,6 +95,10 @@ function render() {
     $('coverage').append(row);
   }
   const rows = visible(), selectable = rows.filter(r => r.event.kind !== 5);
+  const matchingCount = [...records.values()].filter(r => r.event.kind!==5 && matchesFilters(r)).length;
+  selectMatching.hidden = matchingCount <= selectable.length;
+  selectMatching.textContent = `Select all ${matchingCount} matching events`;
+  selectMatching.disabled = busy && !controller;
   const selectedVisible = selectable.filter(r => selected.has(r.event.id)).length;
   $('select-all').checked = selectable.length > 0 && selectedVisible === selectable.length;
   $('select-all').indeterminate = selectedVisible > 0 && selectedVisible < selectable.length;
@@ -149,27 +164,87 @@ $('identity').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.
 $('select-all').onchange=()=>{for(const r of visible())if(r.event.kind!==5){$('select-all').checked?selected.add(r.event.id):selected.delete(r.event.id);}render();};
 function download(items,name){const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),pubkey:owner,example:demo,coverage:[...coverage].map(([relay,status])=>({relay,...status})),events:items.map(r=>({event:r.event,found_on:[...r.relays],returned_this_search:r.seenIn===scanId,deletion_checks:r.deletion}))},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('export').onclick=()=>download([...records.values()],'nostr-data.json');$('export-selected').onclick=()=>download(reviewSnapshot,'nostr-selection.json');
-$('delete').onclick=async()=>{if(controller){controller.abort();await activeScan;}if(!selected.size)return;reviewSnapshot=[...selected].map(id=>records.get(id));$('confirm').dataset.complete='';$('confirm').textContent='Approve with signer';$('review-items').replaceChildren(...reviewSnapshot.map(r=>el('li',`${kindName(r.event.kind)} · ${date(r.event.created_at)} · ${short(r.event.id)}`)));$('review-copy').textContent=`Request deletion of ${reviewSnapshot.length} selected events on ${coverage.size} queried relays. The request is public and cannot be undone.`;$('review-status').textContent='';$('reason').value='';$('review').showModal();};
-$('confirm').onclick=async()=>{let signed;const button=$('confirm');button.disabled=true;busy=true;render();try{
-  if(button.dataset.complete){$('review').close();document.querySelector('.table-scroll')?.scrollIntoView({behavior:'smooth',block:'start'});return;}
-  if(!signer)throw new Error('Close this review and connect a signer first. Your selection will be kept.');
-  const key=publicKey(await signer.getPublicKey());if(key!==owner)throw new Error('The connected signer does not match the public key you searched.');
-  const template=deletionTemplate(reviewSnapshot.map(r=>r.event),key,$('reason').value);
-  $('review-status').textContent='Waiting for signature approval…';signed=await signer.signEvent(template);assertSigned(signed,template,key);
-  $('review-status').textContent='Sending deletion request and checking selected IDs…';
-  for(const r of reviewSnapshot)r.deletion={...r.deletion,...Object.fromEntries([...coverage.keys()].map(url=>[url,{state:'pending'}]))};
-  const renderReviewResults=()=>{$('review-items').replaceChildren(...reviewSnapshot.map(r=>{
-    const item=el('li'),outcome=deletionStatus(r);item.append(el('span',`${kindName(r.event.kind)} · ${r.event.content.slice(0,90)||short(r.event.id)}`),el('div',outcome.label,`deletion-badge deletion-${outcome.state}`));return item;
-  }));};
-  renderReviewResults();render();
-  await Promise.all([...coverage.keys()].map(async url=>{const ack=await publish(url,signed);const check=await query(url,{ids:reviewSnapshot.map(r=>r.event.id)});const returned=new Set(check.events.map(e=>e.id));coverage.get(url).deletion=`${ack} · ${check.status==='Query complete'?`${returned.size} selected events still returned`:'Could not verify: '+check.status}`;
-    for(const r of reviewSnapshot)r.deletion[url]={state:returned.has(r.event.id)?'present':check.status==='Query complete'?'removed':'unknown',ack,checkedAt:Date.now()};renderReviewResults();render();}));
-  // Keep the signed request available as a receipt without mixing it into the selection.
-  records.set(signed.id,{event:signed,relays:new Set(),receipt:true});selected.clear();
-  const counts={removed:0,present:0,unknown:0};for(const r of reviewSnapshot)counts[deletionStatus(r).state]++;
-  const summary=`${counts.removed} no longer returned · ${counts.present} still present · ${counts.unknown} not fully verified`;
-  $('review-status').textContent=`Finished. ${summary}. Results cover checked relays only; other copies may exist.`;say(summary+'. Each affected row shows its result.');button.dataset.complete='true';button.textContent='View results in table';
-}catch(e){$('review-status').textContent=e.message;}finally{busy=false;button.disabled=false;render();}};
+let reviewRemaining = [], stopBatches = false;
+const batchProgress = el('progress');
+batchProgress.id = 'deletion-progress'; batchProgress.hidden = true;
+batchProgress.setAttribute('aria-label','Deletion batch progress');
+$('review-status').before(batchProgress);
+const stopBatchButton = el('button','Stop after this batch');
+stopBatchButton.type = 'button'; stopBatchButton.hidden = true;
+$('confirm').before(stopBatchButton);
+stopBatchButton.onclick = () => {
+  stopBatches = true; stopBatchButton.disabled = true;
+  stopBatchButton.textContent = 'Stopping after this batch…';
+};
+const reviewStates = new Map();
+function renderReviewResults() {
+  $('review-items').replaceChildren(...reviewSnapshot.map(record => {
+    const item = el('li'), state = reviewStates.get(record.event.id);
+    const outcome = state === 'checked' ? deletionStatus(record) : null;
+    const label = outcome?.label || (state === 'signing' ? 'Waiting for signature…' : state === 'active' ? 'Sending and checking…' : 'Not sent yet');
+    item.append(el('span',`${kindName(record.event.kind)} · ${record.event.content.slice(0,90)||short(record.event.id)}`),
+      el('div',label,`deletion-badge deletion-${outcome?.state||'pending'}`));
+    return item;
+  }));
+}
+$('delete').onclick = async () => {
+  if(controller) { controller.abort(); await activeScan; }
+  if(!selected.size) return;
+  reviewSnapshot = [...selected].map(id => records.get(id));
+  reviewRemaining = [...reviewSnapshot]; reviewStates.clear();
+  const batchCount = Math.ceil(reviewSnapshot.length / DELETION_BATCH_SIZE);
+  $('confirm').dataset.complete = ''; $('confirm').textContent = 'Approve with signer';
+  batchProgress.hidden = true; stopBatchButton.hidden = true;
+  $('review-items').replaceChildren(...reviewSnapshot.map(r => el('li',`${kindName(r.event.kind)} · ${date(r.event.created_at)} · ${short(r.event.id)}`)));
+  $('review-copy').textContent = `Request deletion of ${reviewSnapshot.length} selected events on ${coverage.size} queried relays, in ${batchCount} ${batchCount===1?'batch':'batches'}. Your signer may ask for approval for each batch. The requests are public and cannot be undone.`;
+  $('review-status').textContent = ''; $('reason').value = ''; $('review').showModal();
+};
+$('confirm').onclick = async () => {
+  const button = $('confirm');
+  if(button.dataset.complete) { $('review').close(); document.querySelector('.table-scroll')?.scrollIntoView({behavior:'smooth',block:'start'}); return; }
+  button.disabled = true; busy = true; stopBatches = false; $('reason').disabled = true; render();
+  try {
+    if(!signer) throw new Error('Close this review and connect a signer first. Your selection will be kept.');
+    const key = publicKey(await signer.getPublicKey());
+    if(key!==owner) throw new Error('The connected signer does not match the public key you searched.');
+    const total = reviewRemaining.length;
+    batchProgress.max = total; batchProgress.value = 0; batchProgress.hidden = false;
+    stopBatchButton.hidden = total <= DELETION_BATCH_SIZE;
+    stopBatchButton.disabled = false; stopBatchButton.textContent = 'Stop after this batch';
+    renderReviewResults();
+    const result = await deleteInBatches({
+      records:reviewRemaining, pubkey:key, signer, relays:[...coverage.keys()], reason:$('reason').value,
+      shouldStop:() => stopBatches,
+      onReceipt:signed => records.set(signed.id,{event:signed,relays:new Set(),receipt:true}),
+      onProgress:progress => {
+        const phase = progress.stage === 'signing' ? 'Waiting for signature' : 'Sending and checking';
+        $('review-status').textContent = `Batch ${progress.index+1} of ${progress.batches} · ${progress.completed}/${progress.total} events processed. ${phase}…`;
+        batchProgress.value = progress.completed;
+        for(const record of progress.current) reviewStates.set(record.event.id,
+          progress.stage === 'signing' ? 'signing' : progress.stage === 'completed' ? 'checked' : 'active');
+        if(progress.stage === 'completed') for(const record of progress.current) selected.delete(record.event.id);
+        if(progress.relay) coverage.get(progress.relay).deletion =
+          `Batch ${progress.index+1}/${progress.batches}: ${progress.ack} · ${progress.checkStatus==='Query complete' ? progress.returned+' events still returned' : 'Could not verify'}`;
+        renderReviewResults(); render();
+      },
+    });
+    reviewRemaining = result.remaining;
+    for(const record of reviewRemaining) reviewStates.set(record.event.id,'queued');
+    renderReviewResults();
+    const counts = {removed:0,present:0,unknown:0};
+    for(const record of reviewSnapshot) if(reviewStates.get(record.event.id)==='checked') counts[deletionStatus(record).state]++;
+    const summary = `${counts.removed} no longer returned · ${counts.present} still present · ${counts.unknown} not fully verified`;
+    if(reviewRemaining.length) {
+      $('review-status').textContent = `Stopped. ${summary}. ${reviewRemaining.length} events not sent; they remain selected. ${result.error||''}`;
+      button.textContent = `Continue remaining ${reviewRemaining.length} events`;
+    } else {
+      $('review-status').textContent = `Finished. ${summary}. Results cover checked relays only; other copies may exist.`;
+      button.dataset.complete = 'true'; button.textContent = 'View results in table';
+    }
+    say($('review-status').textContent);
+  } catch(error) { $('review-status').textContent = error.message; }
+  finally { busy = false; button.disabled = false; $('reason').disabled = false; stopBatchButton.hidden = true; render(); }
+};
 const connection=el('dialog');connection.id='connection';connection.innerHTML='<form method="dialog"><button class="close" aria-label="Close">×</button></form><h2>Connect a signer</h2><p>Choose how to approve deletion requests.</p><button id="extension">Browser extension · NIP-07</button><hr><label for="bunker">Remote signer · NIP-46</label><input id="bunker" type="password" placeholder="bunker://…" autocomplete="off"><button id="remote-connect">Connect remote signer</button><a id="remote-auth" hidden target="_blank" rel="noreferrer">Approve connection with your signer ↗</a><hr><label for="nsec">Secret key · nsec</label><input id="nsec" type="password" placeholder="nsec1…" autocomplete="off" spellcheck="false"><p class="small muted">Held in memory for this tab only. Never saved or sent to relays. Disconnect or reload to clear it. Only use a copy of this app you trust.</p><button id="local-connect">Use this key for this session</button><hr><button id="disconnect">Disconnect</button><p id="connection-status" role="status"></p>';document.body.append(connection);
 $('extension').textContent='Use NIP-07 signer';
 $('connect').onclick=()=>connection.showModal();
