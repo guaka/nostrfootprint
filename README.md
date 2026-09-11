@@ -4,6 +4,10 @@ Licensed under the GNU Affero General Public License v3.0 only ([LICENSE](LICENS
 
 An independent, client-side web app for inspecting your published Nostr events across selected relays, exporting them, and requesting deletion of selected event IDs.
 
+Checkboxes beside Relay coverage filter the table to events observed on any checked relay, combined with the type and content filters. None checked (or **Show all relays**) shows all results. Filtering preserves selected event IDs, including hidden selections, and does not change deletion destinations. Both bulk selection controls respect the active filters.
+
+Relay coverage separates regular events from kind-5 deletion requests. After deletion checks, confirmed absent originals are subtracted; still-present or unverified copies are retained. Accepted deletion requests are counted once per relay (acceptance is not proof of retention). A new search rebuilds these counts from observed results.
+
 Events appear in a selectable table with publication time, type, content/details, and a dedicated relay column. The footer links to the GitHub source and shows the build timestamp in `yyyy-mm-dd hh:mm` UTC, captured when Vite builds the app.
 
 After a deletion request, each affected row shows a result badge and per-relay checks. Notes no longer returned by every checked relay are shaded green with crossed-out text; notes still returned or not fully verified remain visibly distinct. The review dialog summarizes the batch and offers a button back to the table. These statuses describe this session's relay checks, not guaranteed global erasure.

@@ -1,5 +1,41 @@
 import {test,expect} from '@playwright/test';
 import {generateSecretKey,getPublicKey,finalizeEvent,nip19} from 'nostr-tools';
+test('discovered kinds and encryption controls combine with existing filters',async({page})=>{
+  await page.goto('/');await page.locator('#demo').click();
+  await expect(page.locator('#kind optgroup option')).toHaveText(['1 · Note','10002 · Relay list','30397 · Map note']);
+  await page.locator('#kind').selectOption('kind:30397');
+  await expect(page.locator('tbody tr')).toHaveCount(1);
+  await expect(page.locator('tbody tr')).toContainText('river');
+  const group=page.getByRole('group',{name:'Encryption filter'});
+  await group.getByRole('button',{name:'Encrypted',exact:true}).click();
+  await expect(page.locator('tbody tr')).toHaveCount(0);
+  await group.getByRole('button',{name:'Unencrypted',exact:true}).click();
+  await expect(page.locator('tbody tr')).toHaveCount(1);
+  await page.locator('#kind').selectOption('all');
+  await group.getByRole('button',{name:'All',exact:true}).click();
+  await expect(page.locator('tbody tr')).toHaveCount(4);
+});
+test('relay checkboxes filter by union, combine with search, and preserve selection',async({page})=>{
+  await page.goto('/');await page.locator('#demo').click();
+  const rows=page.locator('tbody tr');
+  await expect(rows).toHaveCount(4);
+  await rows.last().getByRole('checkbox').check();
+  const lol=page.getByRole('checkbox',{name:'Filter events from wss://nos.lol/',exact:true});
+  const damus=page.getByRole('checkbox',{name:'Filter events from wss://relay.damus.io/',exact:true});
+  await lol.check();await expect(rows).toHaveCount(2);
+  await expect(lol).toBeFocused();
+  await expect(page.locator('#selected-count')).toHaveText('1');
+  await damus.check();await expect(rows).toHaveCount(4);
+  await page.locator('#search').fill('river');await expect(rows).toHaveCount(1);
+  await page.locator('#search').fill('');
+  await damus.uncheck();await expect(rows).toHaveCount(2);
+  await page.locator('#select-all').check();
+  await expect(page.locator('#selected-count')).toHaveText('3');
+  await page.getByRole('button',{name:'Show all relays',exact:true}).click();
+  await expect(rows).toHaveCount(4);
+  await expect(lol).not.toBeChecked();
+  await expect(rows.last().getByRole('checkbox')).toBeChecked();
+});
 test('sorting toggles direction without changing event selection',async({page})=>{
   await page.goto('/');await page.locator('#demo').click();
   const selected=page.locator('tbody tr').first().getByRole('checkbox');

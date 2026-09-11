@@ -5,6 +5,8 @@ import { EventCache, observeEvent } from './event-cache.js';
 import { createEventTable } from './event-table.js';
 import { rememberIdentity, restoreIdentity } from './remembered-identity.js';
 import { deletionStatus } from './deletion-status.js';
+import { observeCoverage, updateDeletionCoverage } from './relay-counts.js';
+import { matchesEncryption } from './encryption-filter.js';
 import { createIdentityPanel } from './nip05.js';
 import { nip19, generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools';
 import { BunkerSigner, parseBunkerInput } from 'nostr-tools/nip46';
@@ -26,6 +28,27 @@ const date=t=>new Date(t*1000).toISOString().slice(0,16).replace('T',' ')+' UTC'
 const say=text=>$('notice').textContent=text;
 updateIdentityPanel(records, owner, demo);
 let sortColumn = 'published', sortDirection = 'descending';
+const discoveredKinds = el('optgroup'); discoveredKinds.label = 'Discovered kinds';
+$('kind').append(discoveredKinds);
+let kindsSignature = '', encryptionMode = 'all';
+const encryptionSwitch = el('div');
+encryptionSwitch.setAttribute('role', 'group');
+encryptionSwitch.setAttribute('aria-label', 'Encryption filter');
+encryptionSwitch.style.cssText = 'display:flex;gap:.25rem;align-items:center;flex-wrap:wrap';
+for (const mode of ['all', 'encrypted', 'unencrypted']) {
+  const button = el('button', mode[0].toUpperCase() + mode.slice(1));
+  button.type = 'button'; button.dataset.mode = mode;
+  button.onclick = () => { encryptionMode = mode; render(); };
+  encryptionSwitch.append(button);
+}
+const encryptionHint = el('p', 'Encrypted includes known encrypted kinds and likely encrypted Base64 binary. Binary may also be non-encrypted data. “Unencrypted” means not recognized, not guaranteed plaintext.', 'small muted');
+document.querySelector('.filters').after(encryptionSwitch, encryptionHint);
+const relayFilters = new Set(), coverageRows = new Map();
+const relayHint = el('p', 'Filter by any checked relay. None checked shows all. This filters rows, not deletion destinations; hidden selections stay selected.', 'small muted');
+const clearRelayFilters = el('button', 'Show all relays');
+clearRelayFilters.type = 'button';
+clearRelayFilters.onclick = () => { relayFilters.clear(); render(); };
+$('coverage').before(relayHint, clearRelayFilters);
 const textOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 function compareRows(a, b) {
   let order;
@@ -71,10 +94,29 @@ function visible() {
   return displayOrder.map(id => records.get(id)).filter(r => r && matchesFilters(r));
 }
 function matchesFilters(record) {
-  return ($('kind').value==='all'||category(record.event.kind)===$('kind').value) &&
+  return (!relayFilters.size || [...record.relays].some(url => relayFilters.has(url))) &&
+    ($('kind').value==='all'||category(record.event.kind)===$('kind').value||$('kind').value===`kind:${record.event.kind}`) &&
+    matchesEncryption(record.event, encryptionMode) &&
     record.event.content.toLowerCase().includes($('search').value.toLowerCase());
 }
 function render() {
+  const kinds = [...new Set([...records.values()].map(record => record.event.kind))].sort((a,b) => a-b);
+  const signature = kinds.join(',');
+  if (signature !== kindsSignature) {
+    kindsSignature = signature;
+    const value = $('kind').value;
+    discoveredKinds.replaceChildren(...kinds.map(kind => {
+      const option = el('option', `${kind} · ${kindName(kind)}`);
+      option.value = `kind:${kind}`; return option;
+    }));
+    $('kind').value = value.startsWith('kind:') && !kinds.includes(Number(value.slice(5))) ? 'all' : value;
+  }
+  for (const button of encryptionSwitch.children) {
+    const active = button.dataset.mode === encryptionMode;
+    button.setAttribute('aria-pressed', String(active));
+    button.classList.toggle('primary', active);
+  }
+  for (const url of relayFilters) if (!coverage.has(url)) relayFilters.delete(url);
   if (displayedRecords !== records) { displayedRecords = records; displayOrder = []; }
   if (!displayOrder.length && records.size) {
     displayOrder = [...records.keys()].sort((a,b) => compareRows(records.get(a),records.get(b)));
@@ -87,12 +129,31 @@ function render() {
   $('delete').disabled = !selected.size || (busy && !controller) || demo;
   $('scan').disabled = busy; $('demo').disabled = busy; $('connect').disabled = busy;
   $('identity').disabled = busy; $('relays').disabled = busy; $('stop').hidden = !controller;
-  $('coverage').replaceChildren();
+  clearRelayFilters.hidden = !relayFilters.size;
+  for (const [url, elements] of coverageRows) if (!coverage.has(url)) {
+    elements.row.remove(); coverageRows.delete(url);
+  }
   for (const [url,c] of coverage) {
-    const row = el('div',undefined,'relay');
-    row.append(el('strong',new URL(url).host),el('span',`${c.count} events · ${c.status}`));
-    if(c.deletion) row.append(el('span',c.deletion));
-    $('coverage').append(row);
+    if (!coverageRows.has(url)) {
+      const row = el('div', undefined, 'relay'), label = el('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:.4rem;cursor:pointer';
+      const checkbox = el('input'); checkbox.type = 'checkbox';
+      checkbox.setAttribute('aria-label', `Filter events from ${url}`);
+      checkbox.onchange = () => {
+        checkbox.checked ? relayFilters.add(url) : relayFilters.delete(url);
+        render();
+      };
+      label.append(checkbox, el('strong', new URL(url).host));
+      const status = el('span'), deletion = el('span');
+      row.append(label, status, deletion); $('coverage').append(row);
+      coverageRows.set(url, { row, checkbox, status, deletion });
+    }
+    const elements = coverageRows.get(url);
+    elements.checkbox.checked = relayFilters.has(url);
+    if (demo) for (const record of records.values()) if (record.relays.has(url)) observeCoverage(c, record.event);
+    elements.status.textContent = `${c.eventIds?.size || 0} events · ${c.deletionIds?.size || 0} deletion requests (kind 5) · ${c.status}`;
+    elements.status.title = 'Observed events, excluding copies confirmed absent after deletion. Deletion requests include those acknowledged as accepted by this relay; acceptance does not prove retention.';
+    elements.deletion.textContent = c.deletion || '';
   }
   const rows = visible(), selectable = rows.filter(r => r.event.kind !== 5);
   const matchingCount = [...records.values()].filter(r => r.event.kind!==5 && matchesFilters(r)).length;
@@ -131,7 +192,7 @@ async function runScan() {
     await Promise.all(urls.map(async url => {
       let until = Math.floor(Date.now()/1000), seen = new Set();
       const profiles = await query(url,{authors:[key],kinds:[0],limit:20},signal);
-      for (const event of profiles.events) { seen.add(event.id); observeEvent(records,event,url,scanId); }
+      for (const event of profiles.events) { seen.add(event.id); observeEvent(records,event,url,scanId); observeCoverage(coverage.get(url),event); }
       coverage.get(url).count = seen.size; render();
       for (let page=0;page<20;page++) {
         const result = await query(url,{authors:[key],until,limit:500},signal);
@@ -139,10 +200,11 @@ async function runScan() {
         for (const event of result.events) {
           if (!seen.has(event.id)) { seen.add(event.id); added++; }
           observeEvent(records,event,url,scanId);
+          observeCoverage(coverage.get(url),event);
         }
         let status=result.status;
         if(status==='Query complete') status=result.events.length?'Searching older events…':'No older events returned';
-        coverage.set(url,{count:seen.size,status}); render();
+        Object.assign(coverage.get(url),{count:seen.size,status}); render();
         if(result.status!=='Query complete'||!result.events.length) break;
         const oldest=Math.min(...result.events.map(e=>e.created_at));
         if(!added||oldest===until) { coverage.get(url).status='Pagination boundary reached; coverage may be incomplete'; break; }
@@ -227,6 +289,7 @@ $('confirm').onclick = async () => {
         for(const record of progress.current) reviewStates.set(record.event.id,
           progress.stage === 'signing' ? 'signing' : progress.stage === 'completed' ? 'checked' : 'active');
         if(progress.stage === 'completed') for(const record of progress.current) selected.delete(record.event.id);
+        if(progress.relay) updateDeletionCoverage(coverage.get(progress.relay), progress);
         if(progress.relay) coverage.get(progress.relay).deletion =
           `Batch ${progress.index+1}/${progress.batches}: ${progress.ack} · ${progress.checkStatus==='Query complete' ? progress.returned+' events still returned' : 'Could not verify'}`;
         renderReviewResults(); render();

@@ -68,7 +68,7 @@ export async function deleteInBatches({
           ack, checkedAt:Date.now(),
         };
       }
-      report('checking', { relay:url, ack, returned:returned.size, checkStatus:check.status });
+      report('checking', { relay:url, ack, receipt:signed, returned:returned.size, checkStatus:check.status });
     }));
     completed.push(...batch.records);
     report('completed');

@@ -1,5 +1,7 @@
 import { category, kindName } from './core.js';
 import { deletionStatus } from './deletion-status.js';
+import { readableBase64 } from './readable-base64.js';
+import { encryptionState } from './encryption-filter.js';
 
 const node = (tag, text, className) => {
   const element = document.createElement(tag);
@@ -48,8 +50,23 @@ export function createEventTable(container, onSelect, onSort) {
     const type = node('td'); type.append(node('span', kindName(event.kind), 'badge'));
     const contentCell = node('td', undefined, 'event-text');
     const status = node('div'), cached = node('p', undefined, 'cached-observation');
-    const content = category(event.kind) === 'messages' ? 'Encrypted content. This view does not decrypt messages.' : event.content || '(No text content)';
+    const encryption = encryptionState(event);
+    const content = encryption === 'likely'
+      ? 'Likely encrypted content · Base64-encoded binary. Raw payload in event details.'
+      : encryption === 'encrypted'
+        ? 'Encrypted content. This view does not decrypt messages.'
+        : event.content || '(No text content)';
     contentCell.append(status, cached, node('p', content.length > 300 ? content.slice(0,300) + '…' : content, 'event-content'));
+    const decoded = readableBase64(event.content);
+    if (decoded !== null) {
+      contentCell.append(node('div', 'Decoded Base64 · not decrypted', 'small muted'),
+        node('p', decoded.length > 300 ? decoded.slice(0,300) + '…' : decoded, 'event-content decoded-content'));
+      if (decoded.length > 300) {
+        const fullDecoded = node('details');
+        fullDecoded.append(node('summary', 'Full decoded text'), node('pre', decoded));
+        contentCell.append(fullDecoded);
+      }
+    }
     const details = node('details');
     details.append(node('summary', `Event details · ${short(event.id)}`), node('pre', JSON.stringify(event,null,2)));
     contentCell.append(details);
