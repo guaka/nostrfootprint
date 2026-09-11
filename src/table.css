@@ -47,3 +47,76 @@ aside { border-left: 0; border-top: 1px solid #d4dfe7; padding: 1.5rem 0 0; }
 .source-footer { max-width: 1280px; margin: 0 auto; padding: 1rem 2rem 2rem; font-size: .875rem; display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
 .source-footer a { display: inline-flex; align-items: center; gap: .5rem; }
 .source-footer time { color: #5a7183; margin-left: auto; }
+
+/* Compact, full-width workspace. Keep the arrival slot reserved so updates
+   never shift a checkbox underneath an in-progress click. */
+main { width: 100%; max-width: none; padding: .75rem 1rem; }
+header { padding: .55rem 1rem; gap: 1rem; }
+.brand { font-size: 1.2rem; }
+button { padding: .3rem .65rem; min-height: 34px; font-size: .875rem; border-radius: 5px; }
+input:not([type=checkbox]), textarea, select { padding: .35rem .6rem; min-height: 34px; }
+.intro { margin-bottom: .65rem; gap: .75rem; }
+.intro .eyebrow { display: none; }
+h1 { font-size: 1.4rem; margin: 0; letter-spacing: -.025em; }
+.intro p { margin: .15rem 0 0; font-size: .875rem; }
+h2 { font-size: 1rem; }
+.setup { padding: .65rem .8rem; border-radius: 6px; }
+.setup > label { font-size: .875rem; }
+.input-row { gap: .5rem; margin-top: .3rem; }
+.setup summary { margin-top: .4rem; font-size: .875rem; }
+.setup details label { margin: .5rem 0 .3rem; }
+.setup details p { margin: .3rem 0 0; }
+#notice { margin: .4rem 0; min-height: 1.3rem; font-size: .875rem; }
+.stats { gap: 1.5rem; align-items: center; padding: .4rem 0 .6rem; margin-bottom: .65rem; }
+.stats div { flex-direction: row; align-items: baseline; gap: .4rem; }
+.stats strong { font-size: 1.125rem; }
+.stats p { margin-top: 0; margin-bottom: 0; font-size: .8rem; }
+.workspace { gap: .8rem; }
+.identity-panel { padding: .55rem .75rem; margin-bottom: .65rem; border-radius: 6px; }
+.identity-panel p { margin: .2rem 0; font-size: .875rem; }
+.identity-panel li { padding: .3rem 0; gap: .25rem .8rem; }
+.toolbar, .selection { gap: .5rem; }
+.filters { margin: .5rem 0; gap: .5rem; }
+.filters label { gap: 0; }
+.selection { margin-bottom: .35rem; }
+.new-events { margin: .25rem 0; min-height: 36px; }
+.workspace > section > p { margin: .25rem 0; }
+.table-scroll { border-radius: 5px; }
+.events-table th { padding: .4rem .55rem; }
+.events-table th:first-child { width: 58px; }
+.events-table th:nth-child(2) { width: 148px; }
+.events-table th:nth-child(3) { width: 125px; }
+.events-table th:last-child { width: 21%; }
+.events-table td { padding: .45rem .55rem; }
+.events-table .event-content { margin-bottom: .25rem; line-height: 1.35; }
+.sort-button { min-height: 28px; padding: 0; }
+.event-relays li { margin-bottom: .15rem; line-height: 1.35; }
+.deletion-badge { padding: .15rem .35rem; margin-bottom: .25rem; }
+.cached-observation { margin-bottom: .25rem; }
+.relay-check, .relay-ack { margin-top: .1rem; }
+aside { padding-top: .65rem; }
+#coverage { gap: .75rem; }
+.relay { padding: .45rem 0; }
+.relay span { margin-top: .1rem; }
+.aside-note { margin-top: .65rem; }
+.aside-note h3 { margin: .25rem 0; }
+.aside-note p { margin: .25rem 0; }
+.empty { padding: 1.5rem .75rem; }
+.source-footer { width: 100%; max-width: none; margin: 0; padding: .5rem 1rem .75rem; gap: 1rem; }
+dialog { padding: 1.2rem; }
+dialog h2 { font-size: 1.35rem; margin: .25rem 0 .6rem; }
+.dialog-actions { margin-top: .75rem; gap: .5rem; }
+#review-items li { margin-bottom: .5rem; }
+@media (max-width: 800px) {
+  main { padding: .6rem; }
+  header { padding: .5rem .6rem; gap: .6rem; flex-wrap: wrap; }
+  .stats { gap: .35rem 1rem; }
+  .stats p { width: 100%; }
+  .filters { flex-direction: row; flex-wrap: wrap; }
+  .filters .search { min-width: 160px; }
+  .source-footer { padding: .5rem .6rem; }
+}
+@media (pointer: coarse) {
+  button, input:not([type=checkbox]), select { min-height: 44px; }
+  .new-events { min-height: 46px; }
+}
