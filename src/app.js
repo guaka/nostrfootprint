@@ -104,6 +104,7 @@ async function scan(){try{const key=publicKey($('identity').value),urls=relayURL
   }}));say('Search finished. Results reflect what the queried relays returned, not every copy on Nostr.');
 }catch(e){say(e.message);}finally{busy=false;controller=null;render();}}
 $('scan').onclick=scan;$('stop').onclick=()=>controller?.abort();$('kind').onchange=render;$('search').oninput=render;
+$('identity').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.isComposing&&!busy){event.preventDefault();$('scan').click();}});
 $('select-all').onchange=()=>{for(const r of visible())if(r.event.kind!==5){$('select-all').checked?selected.add(r.event.id):selected.delete(r.event.id);}render();};
 function download(items,name){const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),pubkey:owner,example:demo,coverage:[...coverage].map(([relay,status])=>({relay,...status})),events:items.map(r=>({event:r.event,found_on:[...r.relays]}))},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('export').onclick=()=>download([...records.values()],'nostr-data.json');$('export-selected').onclick=()=>download(reviewSnapshot,'nostr-selection.json');
