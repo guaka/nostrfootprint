@@ -52,6 +52,8 @@ After a successful NIP-07 or NIP-46 connection, only the public `npub` is saved 
 
 Every deletion checks ownership, validates source event signatures, creates a kind-5 request with exact `e` and `k` tags, and verifies that the signer returned the precise approved template. Requests are sent only after the review action. No automatic deletion on scan.
 
+Deletion requests and follow-up checks go only to observed source relays within the current relay selection. Events are grouped by identical destination sets before splitting into batches of up to 100, so no relay receives deletion IDs for events not observed there. Cached source observations count; deletion receipts and prior check results do not establish a source. If any selected event has no eligible source relay, nothing is sent.
+
 ## Coverage and limits
 
 - Up to 12 user-selected secure WebSocket relays, 20 pages per relay, 500 requested events per page, and 12-second query timeouts. Time-boundary pagination stops conservatively when it cannot advance without potentially skipping events; the UI reports incomplete coverage.

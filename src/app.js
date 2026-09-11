@@ -1,6 +1,6 @@
 import './style.css';
 import './table.css';
-import { deleteInBatches, DELETION_BATCH_SIZE } from './delete-batches.js';
+import { deleteInBatches, deletionBatches } from './delete-batches.js';
 import { EventCache, observeEvent } from './event-cache.js';
 import { createEventTable } from './event-table.js';
 import { rememberIdentity, restoreIdentity } from './remembered-identity.js';
@@ -192,11 +192,15 @@ $('delete').onclick = async () => {
   if(!selected.size) return;
   reviewSnapshot = [...selected].map(id => records.get(id));
   reviewRemaining = [...reviewSnapshot]; reviewStates.clear();
-  const batchCount = Math.ceil(reviewSnapshot.length / DELETION_BATCH_SIZE);
+  let plan;
+  try { plan = deletionBatches(reviewSnapshot, [...coverage.keys()]); }
+  catch(error) { say(error.message); return; }
+  const batchCount = plan.length;
+  const relayCount = new Set(plan.flatMap(batch => batch.relays)).size;
   $('confirm').dataset.complete = ''; $('confirm').textContent = 'Approve with signer';
   batchProgress.hidden = true; stopBatchButton.hidden = true;
   $('review-items').replaceChildren(...reviewSnapshot.map(r => el('li',`${kindName(r.event.kind)} · ${date(r.event.created_at)} · ${short(r.event.id)}`)));
-  $('review-copy').textContent = `Request deletion of ${reviewSnapshot.length} selected events on ${coverage.size} queried relays, in ${batchCount} ${batchCount===1?'batch':'batches'}. Your signer may ask for approval for each batch. The requests are public and cannot be undone.`;
+  $('review-copy').textContent = `Request deletion of ${reviewSnapshot.length} selected events on ${relayCount} source relays, in ${batchCount} ${batchCount===1?'batch':'batches'}. Each request goes only to current relays where its events were found. Your signer may ask for approval for each batch. The requests are public and cannot be undone.`;
   $('review-status').textContent = ''; $('reason').value = ''; $('review').showModal();
 };
 $('confirm').onclick = async () => {
@@ -209,7 +213,7 @@ $('confirm').onclick = async () => {
     if(key!==owner) throw new Error('The connected signer does not match the public key you searched.');
     const total = reviewRemaining.length;
     batchProgress.max = total; batchProgress.value = 0; batchProgress.hidden = false;
-    stopBatchButton.hidden = total <= DELETION_BATCH_SIZE;
+    stopBatchButton.hidden = deletionBatches(reviewRemaining, [...coverage.keys()]).length <= 1;
     stopBatchButton.disabled = false; stopBatchButton.textContent = 'Stop after this batch';
     renderReviewResults();
     const result = await deleteInBatches({
