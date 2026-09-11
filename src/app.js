@@ -1,5 +1,6 @@
 import './style.css';
 import './table.css';
+import { deletionStatus } from './deletion-status.js';
 import { createIdentityPanel } from './nip05.js';
 import { nip19, generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools';
 import { BunkerSigner, parseBunkerInput } from 'nostr-tools/nip46';
@@ -66,16 +67,22 @@ function render(){
   const scroller=el('div',undefined,'table-scroll');scroller.tabIndex=0;scroller.setAttribute('role','region');scroller.setAttribute('aria-label','Published events table');scroller.append(table);$('events').append(scroller);
   for(const r of rows){
     const e=r.event,row=el('tr',undefined,'event'),selection=el('td'),check=el('input');
+    const outcome=deletionStatus(r);if(outcome)row.dataset.deletion=outcome.state;
     check.type='checkbox';check.checked=selected.has(e.id);check.disabled=busy||e.kind===5;check.setAttribute('aria-label',`Select ${kindName(e.kind)} ${short(e.id)}`);
     check.onchange=()=>{check.checked?selected.add(e.id):selected.delete(e.id);render();};selection.append(check);
     const published=el('td',undefined,'event-date'),time=el('time',date(e.created_at).replace(' UTC',''));time.dateTime=new Date(e.created_at*1000).toISOString();published.append(time);
     const type=el('td');type.append(el('span',kindName(e.kind),'badge'));
     const contentCell=el('td',undefined,'event-text');
+    if(outcome)contentCell.append(el('div',outcome.label,`deletion-badge deletion-${outcome.state}`));
     const content=category(e.kind)==='messages'?'Encrypted content. This view does not decrypt messages.':(e.content||'(No text content)');contentCell.append(el('p',content.length>300?content.slice(0,300)+'…':content,'event-content'));
     const details=el('details');details.append(el('summary',`Event details · ${short(e.id)}`),el('pre',JSON.stringify(e,null,2)));contentCell.append(details);
-    if(r.check)contentCell.append(el('p',r.check,'small'));
     const relaysCell=el('td',undefined,'event-relays');
-    if(r.relays.size){const list=el('ul');for(const relay of [...r.relays].sort())list.append(el('li',relay));relaysCell.append(list);}else relaysCell.append(el('span','Not observed on a relay','muted'));
+    const rowRelays=new Set([...r.relays,...Object.keys(r.deletion||{})]);
+    if(rowRelays.size){const list=el('ul');for(const relay of [...rowRelays].sort()){
+      const item=el('li',relay),result=r.deletion?.[relay];
+      if(result){const labels={pending:'Checking…',removed:'Not returned on recheck',present:'Still returned',unknown:'Could not check'};item.append(el('span',labels[result.state],`relay-check deletion-${result.state}`));if(result.ack)item.append(el('span',result.ack,'relay-ack'));}
+      list.append(item);
+    }relaysCell.append(list);}else relaysCell.append(el('span','Not observed on a relay','muted'));
     row.append(selection,published,type,contentCell,relaysCell);body.append(row);
   }
 }
@@ -98,17 +105,26 @@ $('scan').onclick=scan;$('stop').onclick=()=>controller?.abort();$('kind').oncha
 $('select-all').onchange=()=>{for(const r of visible())if(r.event.kind!==5){$('select-all').checked?selected.add(r.event.id):selected.delete(r.event.id);}render();};
 function download(items,name){const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),pubkey:owner,example:demo,coverage:[...coverage].map(([relay,status])=>({relay,...status})),events:items.map(r=>({event:r.event,found_on:[...r.relays]}))},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('export').onclick=()=>download([...records.values()],'nostr-data.json');$('export-selected').onclick=()=>download(reviewSnapshot,'nostr-selection.json');
-$('delete').onclick=()=>{reviewSnapshot=[...selected].map(id=>records.get(id));$('review-items').replaceChildren(...reviewSnapshot.map(r=>el('li',`${kindName(r.event.kind)} · ${date(r.event.created_at)} · ${short(r.event.id)}`)));$('review-copy').textContent=`Request deletion of ${reviewSnapshot.length} selected events on ${coverage.size} queried relays. The request is public and cannot be undone.`;$('review-status').textContent='';$('reason').value='';$('review').showModal();};
+$('delete').onclick=()=>{reviewSnapshot=[...selected].map(id=>records.get(id));$('confirm').dataset.complete='';$('confirm').textContent='Approve with signer';$('review-items').replaceChildren(...reviewSnapshot.map(r=>el('li',`${kindName(r.event.kind)} · ${date(r.event.created_at)} · ${short(r.event.id)}`)));$('review-copy').textContent=`Request deletion of ${reviewSnapshot.length} selected events on ${coverage.size} queried relays. The request is public and cannot be undone.`;$('review-status').textContent='';$('reason').value='';$('review').showModal();};
 $('confirm').onclick=async()=>{let signed;const button=$('confirm');button.disabled=true;busy=true;render();try{
+  if(button.dataset.complete){$('review').close();document.querySelector('.table-scroll')?.scrollIntoView({behavior:'smooth',block:'start'});return;}
   if(!signer)throw new Error('Close this review and connect a signer first. Your selection will be kept.');
   const key=publicKey(await signer.getPublicKey());if(key!==owner)throw new Error('The connected signer does not match the public key you searched.');
   const template=deletionTemplate(reviewSnapshot.map(r=>r.event),key,$('reason').value);
   $('review-status').textContent='Waiting for signature approval…';signed=await signer.signEvent(template);assertSigned(signed,template,key);
   $('review-status').textContent='Sending deletion request and checking selected IDs…';
+  for(const r of reviewSnapshot)r.deletion=Object.fromEntries([...coverage.keys()].map(url=>[url,{state:'pending'}]));
+  const renderReviewResults=()=>{$('review-items').replaceChildren(...reviewSnapshot.map(r=>{
+    const item=el('li'),outcome=deletionStatus(r);item.append(el('span',`${kindName(r.event.kind)} · ${r.event.content.slice(0,90)||short(r.event.id)}`),el('div',outcome.label,`deletion-badge deletion-${outcome.state}`));return item;
+  }));};
+  renderReviewResults();render();
   await Promise.all([...coverage.keys()].map(async url=>{const ack=await publish(url,signed);const check=await query(url,{ids:reviewSnapshot.map(r=>r.event.id)});const returned=new Set(check.events.map(e=>e.id));coverage.get(url).deletion=`${ack} · ${check.status==='Query complete'?`${returned.size} selected events still returned`:'Could not verify: '+check.status}`;
-    for(const r of reviewSnapshot){const status=returned.has(r.event.id)?'Still returned':check.status==='Query complete'?'Not returned on recheck':'Could not check';r.check=(r.check?r.check+' · ':'')+`${new URL(url).host}: ${status}`;}render();}));
+    for(const r of reviewSnapshot)r.deletion[url]={state:returned.has(r.event.id)?'present':check.status==='Query complete'?'removed':'unknown',ack};renderReviewResults();render();}));
   // Keep the signed request available as a receipt without mixing it into the selection.
-  records.set(signed.id,{event:signed,relays:new Set()});selected.clear();$('review-status').textContent='Finished. See per-relay results. Export results to keep the signed deletion request as a receipt.';say('Deletion request sent. Relay acknowledgment and read-back results are shown separately.');
+  records.set(signed.id,{event:signed,relays:new Set()});selected.clear();
+  const counts={removed:0,present:0,unknown:0};for(const r of reviewSnapshot)counts[deletionStatus(r).state]++;
+  const summary=`${counts.removed} no longer returned · ${counts.present} still present · ${counts.unknown} not fully verified`;
+  $('review-status').textContent=`Finished. ${summary}. Results cover checked relays only; other copies may exist.`;say(summary+'. Each affected row shows its result.');button.dataset.complete='true';button.textContent='View results in table';
 }catch(e){$('review-status').textContent=e.message;}finally{busy=false;button.disabled=false;render();}};
 const connection=el('dialog');connection.id='connection';connection.innerHTML='<form method="dialog"><button class="close" aria-label="Close">×</button></form><h2>Connect a signer</h2><p>Choose how to approve deletion requests.</p><button id="extension">Browser extension · NIP-07</button><hr><label for="bunker">Remote signer · NIP-46</label><input id="bunker" type="password" placeholder="bunker://…" autocomplete="off"><button id="remote-connect">Connect remote signer</button><a id="remote-auth" hidden target="_blank" rel="noreferrer">Approve connection with your signer ↗</a><hr><label for="nsec">Secret key · nsec</label><input id="nsec" type="password" placeholder="nsec1…" autocomplete="off" spellcheck="false"><p class="small muted">Held in memory for this tab only. Never saved or sent to relays. Disconnect or reload to clear it. Only use a copy of this app you trust.</p><button id="local-connect">Use this key for this session</button><hr><button id="disconnect">Disconnect</button><p id="connection-status" role="status"></p>';document.body.append(connection);
 $('extension').textContent='Use NIP-07 signer';

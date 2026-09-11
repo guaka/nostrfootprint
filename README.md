@@ -6,6 +6,8 @@ An independent, client-side web app for inspecting your published Nostr events a
 
 Events appear in a selectable table with publication time, type, content/details, and a dedicated relay column. The footer links to the GitHub source and shows the build timestamp in `yyyy-mm-dd hh:mm` UTC, captured when Vite builds the app.
 
+After a deletion request, each affected row shows a result badge and per-relay checks. Notes no longer returned by every checked relay are shaded green with crossed-out text; notes still returned or not fully verified remain visibly distinct. The review dialog summarizes the batch and offers a button back to the table. These statuses describe this session's relay checks, not guaranteed global erasure.
+
 Above the table, NIP-05 addresses from retrieved kind-0 profiles are checked against their domains and labeled as verified, mismatched, missing, or unable to check. Older profile claims are distinguished from the latest retrieved profile. Checks use HTTPS without redirects or credentials and time out after eight seconds; up to 20 addresses are checked per search. This is not a global reverse lookup of every address associated with a key. Default relays include `wss://relay.trustroots.org` and `wss://relay.nomadwiki.org`.
 
 ## Run
