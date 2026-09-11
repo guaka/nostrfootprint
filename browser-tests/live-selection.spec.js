@@ -77,7 +77,7 @@ test('a rescan retains deletion results without treating the cache as live evide
   },{event,pk});
   await page.goto('/');await page.locator('.setup summary').click();await page.locator('#relays').fill('wss://example.com');
   await page.locator('#connect').click();await page.locator('#extension').click();
-  await page.locator('#scan').click();await expect(page.locator('#scan')).toBeEnabled();
+  await expect(page.locator('#count')).toHaveText('1');await expect(page.locator('#scan')).toBeEnabled();
   await page.locator('#select-all').check();await page.locator('#delete').click();await page.locator('#confirm').click();
   await expect(page.locator('tr[data-deletion=removed]')).toContainText('Deleted note');
   await page.getByRole('button',{name:'View results in table'}).click();

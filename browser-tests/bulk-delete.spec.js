@@ -21,7 +21,7 @@ test('bulk review processes 205 events in batches and resumes after a signer dec
     };
   },{pk,events});
   await page.goto('/');await page.locator('.setup summary').click();await page.locator('#relays').fill('wss://example.com');
-  await page.locator('#connect').click();await page.locator('#extension').click();await page.locator('#scan').click();
+  await page.locator('#connect').click();await page.locator('#extension').click();
   await expect(page.locator('#count')).toHaveText('205');await expect(page.locator('#scan')).toBeEnabled();
   await page.locator('#select-all').check();await page.locator('#delete').click();
   await expect(page.locator('#review-copy')).toContainText('205 selected events');await expect(page.locator('#review-copy')).toContainText('3 batches');

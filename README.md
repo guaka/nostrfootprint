@@ -41,6 +41,8 @@ To reproduce the browser check locally, run `npm run build`, `npx playwright ins
 
 ## Signing
 
+Successful NIP-07 and NIP-46 connections automatically start loading events from the selected relays for the signer's public key. The search runs independently of the remote-signer connection timeout. Importing an nsec still leaves the search under manual control.
+
 After a successful NIP-07 or NIP-46 connection, only the public `npub` is saved in localStorage and used to prefill the search field on the next visit. Disconnect keeps this public browsing preference. Restoring it does not reconnect a signer or start a relay search. Secret keys, bunker URLs, and signing sessions are never persisted. Invalid stored values and unavailable storage are ignored.
 
 - NIP-07: uses the provider at `window.nostr`, including providers supplied by native app browsers.
