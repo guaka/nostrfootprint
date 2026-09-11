@@ -24,6 +24,9 @@ aside { border-left: 0; border-top: 1px solid #d4dfe7; padding: 1.5rem 0 0; }
 .event-relays ul { list-style: none; padding: 0; margin: 0; }
 .event-relays li { overflow-wrap: anywhere; margin-bottom: .45rem; }
 .event-text { overflow-wrap: anywhere; }
+.new-events { margin: .75rem 0; min-height: 46px; }
+.new-events button { color: #08787d; background: #e5f3f3; }
+.cached-observation { color: #607587; font-size: .8rem; margin: 0 0 .5rem; }
 .deletion-badge { width: fit-content; border-radius: 5px; padding: .25rem .5rem; margin-bottom: .65rem; font-size: .875rem; font-weight: 650; }
 .deletion-removed { color: #19633f; background: #e4f5eb; }
 .deletion-present { color: #8a3d13; background: #fff0dc; }

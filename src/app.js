@@ -1,5 +1,7 @@
 import './style.css';
 import './table.css';
+import { EventCache, observeEvent } from './event-cache.js';
+import { createEventTable } from './event-table.js';
 import { rememberIdentity, restoreIdentity } from './remembered-identity.js';
 import { deletionStatus } from './deletion-status.js';
 import { createIdentityPanel } from './nip05.js';
@@ -32,83 +34,122 @@ function compareRows(a, b) {
   else order = textOrder.compare([...a.relays].sort().join('\n'), [...b.relays].sort().join('\n'));
   return (sortDirection === 'ascending' ? order : -order) || a.event.id.localeCompare(b.event.id);
 }
-function visible(){return [...records.values()].filter(r=>($('kind').value==='all'||category(r.event.kind)===$('kind').value)&&r.event.content.toLowerCase().includes($('search').value.toLowerCase())).sort(compareRows);}
-function render(){
-  updateIdentityPanel(records, owner, demo);
-  $('count').textContent=records.size;$('relay-count').textContent=coverage.size;$('selected-count').textContent=selected.size;
-  $('delete').textContent=`Review deletion · ${selected.size}`;$('delete').disabled=!selected.size||busy||demo;
-  $('scan').disabled=busy;$('demo').disabled=busy;$('connect').disabled=busy;$('identity').disabled=busy;$('relays').disabled=busy;$('stop').hidden=!controller;
-  $('coverage').replaceChildren();for(const[url,c]of coverage){const row=el('div',undefined,'relay');row.append(el('strong',new URL(url).host),el('span',`${c.count} events · ${c.status}`));if(c.deletion)row.append(el('span',c.deletion));$('coverage').append(row);}
-  const rows=visible();$('select-all').checked=rows.some(r=>r.event.kind!==5)&&rows.filter(r=>r.event.kind!==5).every(r=>selected.has(r.event.id));$('select-all').disabled=busy;
-  $('events').replaceChildren();if(!rows.length){const empty=el('div',undefined,'empty');empty.append(el('h3',records.size?'No matching results':'Nothing found yet'),el('p',records.size?'Try another filter.':'Search a public key or explore the example. Empty or incomplete relay results do not prove there is no data.'));$('events').append(empty);}
-  if (!rows.length) return;
-  const table=el('table',undefined,'events-table'),head=el('thead'),headers=el('tr'),body=el('tbody');
-  table.append(el('caption','Published events and the relays that returned them','sr-only'));
-  for (const [key,label] of [['','Select'],['published','Published (UTC)'],['type','Type'],['content','Content / details'],['relays','Relay(s)']]) {
-    const th=el('th');th.scope='col';
-    if (!key) th.textContent=label;
-    else {
-      const active=sortColumn===key;
-      th.setAttribute('aria-sort',active?sortDirection:'none');
-      const button=el('button',undefined,'sort-button');button.type='button';button.dataset.sort=key;
-      const arrow=el('span',active?(sortDirection==='ascending'?'↑':'↓'):'↕');arrow.setAttribute('aria-hidden','true');
-      button.append(document.createTextNode(label+' '),arrow);
-      const next=active&&sortDirection==='ascending'?'descending':'ascending';
-      button.title=`Sort ${label} ${next}`;
-      button.onclick=()=>{
-        const scrollLeft=document.querySelector('.table-scroll')?.scrollLeft||0;
-        sortColumn=key;sortDirection=next;render();
-        document.querySelector('.table-scroll').scrollLeft=scrollLeft;
-        document.querySelector(`[data-sort="${key}"]`).focus({preventScroll:true});
-      };
-      th.append(button);
-    }
-    headers.append(th);
-  }
-  head.append(headers);table.append(head,body);
-  const scroller=el('div',undefined,'table-scroll');scroller.tabIndex=0;scroller.setAttribute('role','region');scroller.setAttribute('aria-label','Published events table');scroller.append(table);$('events').append(scroller);
-  for(const r of rows){
-    const e=r.event,row=el('tr',undefined,'event'),selection=el('td'),check=el('input');
-    const outcome=deletionStatus(r);if(outcome)row.dataset.deletion=outcome.state;
-    check.type='checkbox';check.checked=selected.has(e.id);check.disabled=busy||e.kind===5;check.setAttribute('aria-label',`Select ${kindName(e.kind)} ${short(e.id)}`);
-    check.onchange=()=>{check.checked?selected.add(e.id):selected.delete(e.id);render();};selection.append(check);
-    const published=el('td',undefined,'event-date'),time=el('time',date(e.created_at).replace(' UTC',''));time.dateTime=new Date(e.created_at*1000).toISOString();published.append(time);
-    const type=el('td');type.append(el('span',kindName(e.kind),'badge'));
-    const contentCell=el('td',undefined,'event-text');
-    if(outcome)contentCell.append(el('div',outcome.label,`deletion-badge deletion-${outcome.state}`));
-    const content=category(e.kind)==='messages'?'Encrypted content. This view does not decrypt messages.':(e.content||'(No text content)');contentCell.append(el('p',content.length>300?content.slice(0,300)+'…':content,'event-content'));
-    const details=el('details');details.append(el('summary',`Event details · ${short(e.id)}`),el('pre',JSON.stringify(e,null,2)));contentCell.append(details);
-    const relaysCell=el('td',undefined,'event-relays');
-    const rowRelays=new Set([...r.relays,...Object.keys(r.deletion||{})]);
-    if(rowRelays.size){const list=el('ul');for(const relay of [...rowRelays].sort()){
-      const item=el('li',relay),result=r.deletion?.[relay];
-      if(result){const labels={pending:'Checking…',removed:'Not returned on recheck',present:'Still returned',unknown:'Could not check'};item.append(el('span',labels[result.state],`relay-check deletion-${result.state}`));if(result.ack)item.append(el('span',result.ack,'relay-ack'));}
-      list.append(item);
-    }relaysCell.append(list);}else relaysCell.append(el('span','Not observed on a relay','muted'));
-    row.append(selection,published,type,contentCell,relaysCell);body.append(row);
-  }
+const eventCache = new EventCache();
+let scanId = 0, displayedRecords = null, displayOrder = [];
+const arrivals = el('div', undefined, 'new-events');
+const showNew = el('button');
+showNew.type = 'button';
+showNew.onclick = () => {
+  displayOrder = [...records.keys()].sort((a,b) => compareRows(records.get(a),records.get(b)));
+  render();
+};
+arrivals.append(showNew);
+$('events').before(arrivals);
+const cacheHint = el('p', undefined, 'small muted');
+arrivals.before(cacheHint);
+const renderTable = createEventTable($('events'), (id, checked) => {
+  if (busy && !controller) return;
+  checked ? selected.add(id) : selected.delete(id);
+  render();
+}, key => {
+  sortDirection = sortColumn === key && sortDirection === 'ascending' ? 'descending' : 'ascending';
+  sortColumn = key;
+  displayOrder.sort((a,b) => compareRows(records.get(a), records.get(b)));
+  render();
+});
+render();
+function visible() {
+  return displayOrder.map(id => records.get(id)).filter(r => r &&
+    ($('kind').value === 'all' || category(r.event.kind) === $('kind').value) &&
+    r.event.content.toLowerCase().includes($('search').value.toLowerCase()));
 }
-async function scan(){try{const key=publicKey($('identity').value),urls=relayURLs($('relays').value);owner=key;records=new Map();selected.clear();coverage=new Map(urls.map(u=>[u,{count:0,status:'Connecting…'}]));demo=false;busy=true;controller=new AbortController();render();say('Searching selected relays. Each search is bounded; incomplete coverage is shown.');
-  await Promise.all(urls.map(async url=>{let until=Math.floor(Date.now()/1000),seen=new Set();
-    const profiles = await query(url,{authors:[key],kinds:[0],limit:20},controller.signal);
-    for(const event of profiles.events){seen.add(event.id);if(!records.has(event.id))records.set(event.id,{event,relays:new Set()});records.get(event.id).relays.add(url);}
-    coverage.get(url).count=seen.size;render();
-    for(let page=0;page<20;page++){
-    const result=await query(url,{authors:[key],until,limit:500},controller.signal);let added=0;for(const event of result.events){if(!seen.has(event.id)){seen.add(event.id);added++;}if(!records.has(event.id))records.set(event.id,{event,relays:new Set()});records.get(event.id).relays.add(url);}
-    let status=result.status;if(status==='Query complete')status=result.events.length?'Searching older events…':'No older events returned';coverage.set(url,{count:seen.size,status});render();
-    if(result.status!=='Query complete'||!result.events.length)break;
-    const oldest=Math.min(...result.events.map(e=>e.created_at));
-    // Include the boundary second again: never silently skip ties at a page edge.
-    if(!added||oldest===until){coverage.get(url).status='Pagination boundary reached; coverage may be incomplete';break;}
-    until=oldest;if(page===19)coverage.get(url).status='20-page limit reached; coverage incomplete';
-  }}));say('Search finished. Results reflect what the queried relays returned, not every copy on Nostr.');
-}catch(e){say(e.message);}finally{busy=false;controller=null;render();}}
+function render() {
+  if (displayedRecords !== records) { displayedRecords = records; displayOrder = []; }
+  if (!displayOrder.length && records.size) {
+    displayOrder = [...records.keys()].sort((a,b) => compareRows(records.get(a),records.get(b)));
+  }
+  updateIdentityPanel(records, owner, demo);
+  $('count').textContent = records.size;
+  $('relay-count').textContent = coverage.size;
+  $('selected-count').textContent = selected.size;
+  $('delete').textContent = controller && selected.size ? 'Stop search to review deletion' : `Review deletion · ${selected.size}`;
+  $('delete').disabled = !selected.size || (busy && !controller) || demo;
+  $('scan').disabled = busy; $('demo').disabled = busy; $('connect').disabled = busy;
+  $('identity').disabled = busy; $('relays').disabled = busy; $('stop').hidden = !controller;
+  $('coverage').replaceChildren();
+  for (const [url,c] of coverage) {
+    const row = el('div',undefined,'relay');
+    row.append(el('strong',new URL(url).host),el('span',`${c.count} events · ${c.status}`));
+    if(c.deletion) row.append(el('span',c.deletion));
+    $('coverage').append(row);
+  }
+  const rows = visible(), selectable = rows.filter(r => r.event.kind !== 5);
+  const selectedVisible = selectable.filter(r => selected.has(r.event.id)).length;
+  $('select-all').checked = selectable.length > 0 && selectedVisible === selectable.length;
+  $('select-all').indeterminate = selectedVisible > 0 && selectedVisible < selectable.length;
+  $('select-all').disabled = (busy && !controller) || !selectable.length;
+  const pending = records.size - displayOrder.length;
+  showNew.hidden = pending === 0;
+  showNew.textContent = `Show ${pending} new ${pending === 1 ? 'event' : 'events'}`;
+  showNew.disabled = busy && !controller;
+  const cached = [...records.values()].filter(r => !r.receipt && r.seenIn !== scanId).length;
+  cacheHint.hidden = demo || (!cached && !controller);
+  cacheHint.textContent = [
+    cached ? `${cached} cached observations. Previous deletion checks are retained; cached entries do not confirm current relay contents.` : '',
+    controller ? 'Select rows while searching. New events wait until you choose to show them.' : ''
+  ].filter(Boolean).join(' ');
+  renderTable({ rows, selected, locked:busy && !controller, sortColumn, sortDirection, scanId, total:records.size, demo });
+}
+let activeScan = null;
+async function runScan() {
+  try {
+    const key = publicKey($('identity').value), urls = relayURLs($('relays').value);
+    if (key !== owner || demo) selected.clear();
+    owner = key; records = eventCache.forIdentity(key);
+    for (const id of selected) if (!records.has(id)) selected.delete(id);
+    scanId++;
+    coverage = new Map(urls.map(u => [u,{count:0,status:'Connecting…'}]));
+    demo = false; busy = true; controller = new AbortController();
+    const signal = controller.signal;
+    render();
+    say('Refreshing selected relays. Cached observations remain visible while fresh results arrive.');
+    await Promise.all(urls.map(async url => {
+      let until = Math.floor(Date.now()/1000), seen = new Set();
+      const profiles = await query(url,{authors:[key],kinds:[0],limit:20},signal);
+      for (const event of profiles.events) { seen.add(event.id); observeEvent(records,event,url,scanId); }
+      coverage.get(url).count = seen.size; render();
+      for (let page=0;page<20;page++) {
+        const result = await query(url,{authors:[key],until,limit:500},signal);
+        let added=0;
+        for (const event of result.events) {
+          if (!seen.has(event.id)) { seen.add(event.id); added++; }
+          observeEvent(records,event,url,scanId);
+        }
+        let status=result.status;
+        if(status==='Query complete') status=result.events.length?'Searching older events…':'No older events returned';
+        coverage.set(url,{count:seen.size,status}); render();
+        if(result.status!=='Query complete'||!result.events.length) break;
+        const oldest=Math.min(...result.events.map(e=>e.created_at));
+        if(!added||oldest===until) { coverage.get(url).status='Pagination boundary reached; coverage may be incomplete'; break; }
+        until=oldest;
+        if(page===19) coverage.get(url).status='20-page limit reached; coverage incomplete';
+      }
+    }));
+    say(signal.aborted ? 'Search stopped. Your selections and results were kept.' : 'Search finished. Show new events when ready; your selections are unchanged.');
+  } catch(e) { say(e.message); }
+  finally { busy=false; controller=null; render(); }
+}
+async function scan() {
+  if (busy) return;
+  activeScan = runScan();
+  try { await activeScan; } finally { activeScan = null; }
+}
 $('scan').onclick=scan;$('stop').onclick=()=>controller?.abort();$('kind').onchange=render;$('search').oninput=render;
 $('identity').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.isComposing&&!busy){event.preventDefault();$('scan').click();}});
 $('select-all').onchange=()=>{for(const r of visible())if(r.event.kind!==5){$('select-all').checked?selected.add(r.event.id):selected.delete(r.event.id);}render();};
-function download(items,name){const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),pubkey:owner,example:demo,coverage:[...coverage].map(([relay,status])=>({relay,...status})),events:items.map(r=>({event:r.event,found_on:[...r.relays]}))},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function download(items,name){const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),pubkey:owner,example:demo,coverage:[...coverage].map(([relay,status])=>({relay,...status})),events:items.map(r=>({event:r.event,found_on:[...r.relays],returned_this_search:r.seenIn===scanId,deletion_checks:r.deletion}))},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('export').onclick=()=>download([...records.values()],'nostr-data.json');$('export-selected').onclick=()=>download(reviewSnapshot,'nostr-selection.json');
-$('delete').onclick=()=>{reviewSnapshot=[...selected].map(id=>records.get(id));$('confirm').dataset.complete='';$('confirm').textContent='Approve with signer';$('review-items').replaceChildren(...reviewSnapshot.map(r=>el('li',`${kindName(r.event.kind)} · ${date(r.event.created_at)} · ${short(r.event.id)}`)));$('review-copy').textContent=`Request deletion of ${reviewSnapshot.length} selected events on ${coverage.size} queried relays. The request is public and cannot be undone.`;$('review-status').textContent='';$('reason').value='';$('review').showModal();};
+$('delete').onclick=async()=>{if(controller){controller.abort();await activeScan;}if(!selected.size)return;reviewSnapshot=[...selected].map(id=>records.get(id));$('confirm').dataset.complete='';$('confirm').textContent='Approve with signer';$('review-items').replaceChildren(...reviewSnapshot.map(r=>el('li',`${kindName(r.event.kind)} · ${date(r.event.created_at)} · ${short(r.event.id)}`)));$('review-copy').textContent=`Request deletion of ${reviewSnapshot.length} selected events on ${coverage.size} queried relays. The request is public and cannot be undone.`;$('review-status').textContent='';$('reason').value='';$('review').showModal();};
 $('confirm').onclick=async()=>{let signed;const button=$('confirm');button.disabled=true;busy=true;render();try{
   if(button.dataset.complete){$('review').close();document.querySelector('.table-scroll')?.scrollIntoView({behavior:'smooth',block:'start'});return;}
   if(!signer)throw new Error('Close this review and connect a signer first. Your selection will be kept.');
@@ -116,15 +157,15 @@ $('confirm').onclick=async()=>{let signed;const button=$('confirm');button.disab
   const template=deletionTemplate(reviewSnapshot.map(r=>r.event),key,$('reason').value);
   $('review-status').textContent='Waiting for signature approval…';signed=await signer.signEvent(template);assertSigned(signed,template,key);
   $('review-status').textContent='Sending deletion request and checking selected IDs…';
-  for(const r of reviewSnapshot)r.deletion=Object.fromEntries([...coverage.keys()].map(url=>[url,{state:'pending'}]));
+  for(const r of reviewSnapshot)r.deletion={...r.deletion,...Object.fromEntries([...coverage.keys()].map(url=>[url,{state:'pending'}]))};
   const renderReviewResults=()=>{$('review-items').replaceChildren(...reviewSnapshot.map(r=>{
     const item=el('li'),outcome=deletionStatus(r);item.append(el('span',`${kindName(r.event.kind)} · ${r.event.content.slice(0,90)||short(r.event.id)}`),el('div',outcome.label,`deletion-badge deletion-${outcome.state}`));return item;
   }));};
   renderReviewResults();render();
   await Promise.all([...coverage.keys()].map(async url=>{const ack=await publish(url,signed);const check=await query(url,{ids:reviewSnapshot.map(r=>r.event.id)});const returned=new Set(check.events.map(e=>e.id));coverage.get(url).deletion=`${ack} · ${check.status==='Query complete'?`${returned.size} selected events still returned`:'Could not verify: '+check.status}`;
-    for(const r of reviewSnapshot)r.deletion[url]={state:returned.has(r.event.id)?'present':check.status==='Query complete'?'removed':'unknown',ack};renderReviewResults();render();}));
+    for(const r of reviewSnapshot)r.deletion[url]={state:returned.has(r.event.id)?'present':check.status==='Query complete'?'removed':'unknown',ack,checkedAt:Date.now()};renderReviewResults();render();}));
   // Keep the signed request available as a receipt without mixing it into the selection.
-  records.set(signed.id,{event:signed,relays:new Set()});selected.clear();
+  records.set(signed.id,{event:signed,relays:new Set(),receipt:true});selected.clear();
   const counts={removed:0,present:0,unknown:0};for(const r of reviewSnapshot)counts[deletionStatus(r).state]++;
   const summary=`${counts.removed} no longer returned · ${counts.present} still present · ${counts.unknown} not fully verified`;
   $('review-status').textContent=`Finished. ${summary}. Results cover checked relays only; other copies may exist.`;say(summary+'. Each affected row shows its result.');button.dataset.complete='true';button.textContent='View results in table';
